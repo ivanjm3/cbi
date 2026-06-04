@@ -1,0 +1,162 @@
+[
+  {
+    "rule_id": "RULE_001",
+    "rule_name": "pii_ssn_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:\\b\\d{3}-\\d{2}-\\d{4}\\b",
+    "severity": "high",
+    "enabled": true,
+    "description": "Detects US Social Security Numbers (XXX-XX-XXXX format)"
+  },
+  {
+    "rule_id": "RULE_002",
+    "rule_name": "pii_email_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
+    "severity": "medium",
+    "enabled": true,
+    "description": "Detects email addresses"
+  },
+  {
+    "rule_id": "RULE_003",
+    "rule_name": "pii_phone_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:\\b(?:\\+?1[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\b",
+    "severity": "medium",
+    "enabled": true,
+    "description": "Detects US phone numbers in various formats"
+  },
+  {
+    "rule_id": "RULE_004",
+    "rule_name": "credit_card_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:\\b(?:\\d{4}[- ]?){3}\\d{4}\\b",
+    "severity": "high",
+    "enabled": true,
+    "description": "Detects credit card numbers (16-digit with optional separators)"
+  },
+  {
+    "rule_id": "RULE_005",
+    "rule_name": "pii_passport_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:\\b[A-Z]{1,2}\\d{6,9}\\b",
+    "severity": "high",
+    "enabled": true,
+    "description": "Detects passport numbers (letter prefix + 6-9 digits)"
+  },
+  {
+    "rule_id": "RULE_006",
+    "rule_name": "pii_ip_address_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",
+    "severity": "low",
+    "enabled": true,
+    "description": "Detects IPv4 addresses"
+  },
+  {
+    "rule_id": "RULE_007",
+    "rule_name": "vulgar_content_filter",
+    "rule_type": "policy",
+    "action": "reject",
+    "pattern": "regex:\\b(?:fuck|shit|damn|bastard|bitch|ass(?:hole)?|crap|dick|piss)\\b",
+    "severity": "high",
+    "enabled": true,
+    "description": "Rejects responses containing vulgar language"
+  },
+  {
+    "rule_id": "RULE_008",
+    "rule_name": "sexual_content_filter",
+    "rule_type": "policy",
+    "action": "reject",
+    "pattern": "regex:\\b(?:porn(?:ography)?|nude|naked|sexual(?:ly)?|erotic|xxx|nsfw|masturbat|orgasm|genital)\\b",
+    "severity": "critical",
+    "enabled": true,
+    "description": "Rejects responses containing sexual/explicit content"
+  },
+  {
+    "rule_id": "RULE_009",
+    "rule_name": "hate_speech_filter",
+    "rule_type": "policy",
+    "action": "reject",
+    "pattern": "regex:\\b(?:nazi|white\\s*suprem|ethnic\\s*cleans|racial\\s*slur|genocide|supremacist)\\b",
+    "severity": "critical",
+    "enabled": true,
+    "description": "Rejects responses containing hate speech or extremist content"
+  },
+  {
+    "rule_id": "RULE_010",
+    "rule_name": "violence_threats_filter",
+    "rule_type": "policy",
+    "action": "reject",
+    "pattern": "regex:\\b(?:kill\\s+(?:you|them|him|her)|bomb\\s+threat|terroris[mt]|murder|assassinat)\\b",
+    "severity": "critical",
+    "enabled": true,
+    "description": "Rejects responses containing threats of violence or terrorism"
+  },
+  {
+    "rule_id": "RULE_011",
+    "rule_name": "self_harm_filter",
+    "rule_type": "policy",
+    "action": "reject",
+    "pattern": "regex:\\b(?:suicide\\s+method|how\\s+to\\s+kill\\s+yourself|self[- ]harm\\s+instructions)\\b",
+    "severity": "critical",
+    "enabled": true,
+    "description": "Rejects responses containing self-harm instructions"
+  },
+  {
+    "rule_id": "RULE_012",
+    "rule_name": "illegal_activity_filter",
+    "rule_type": "policy",
+    "action": "reject",
+    "pattern": "regex:\\b(?:money\\s*launder|drug\\s*traffick|human\\s*traffick|child\\s*exploit|illegal\\s*weapon)\\b",
+    "severity": "critical",
+    "enabled": true,
+    "description": "Rejects responses containing references to illegal activities"
+  },
+  {
+    "rule_id": "RULE_013",
+    "rule_name": "racial_slur_filter",
+    "rule_type": "policy",
+    "action": "reject",
+    "pattern": "regex:\\b(?:n[i1]gg[ae3]r|sp[i1]c|k[i1]ke|ch[i1]nk|wetback|f[a4]gg?[o0]t)\\b",
+    "severity": "critical",
+    "enabled": true,
+    "description": "Rejects responses containing racial/ethnic slurs"
+  },
+  {
+    "rule_id": "RULE_014",
+    "rule_name": "aws_credentials_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:(?:AKIA|ASIA)[A-Z0-9]{16}",
+    "severity": "critical",
+    "enabled": true,
+    "description": "Detects AWS access key IDs that may have leaked into data"
+  },
+  {
+    "rule_id": "RULE_015",
+    "rule_name": "password_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:(?i)(?:password|passwd|pwd)\\s*[:=]\\s*\\S+",
+    "severity": "high",
+    "enabled": true,
+    "description": "Detects password values in key=value or key:value patterns"
+  },
+  {
+    "rule_id": "RULE_016",
+    "rule_name": "internal_url_detection",
+    "rule_type": "safety",
+    "action": "redact",
+    "pattern": "regex:https?://(?:internal|private|intranet|corp)\\.[a-zA-Z0-9.-]+",
+    "severity": "medium",
+    "enabled": true,
+    "description": "Redacts internal/private URLs that should not be exposed"
+  }
+]

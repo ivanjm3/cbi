@@ -1,0 +1,31 @@
+product_id,name,category,subcategory,unit_price,stock_quantity,unit_cost,supplier,supplier_region,last_restocked,weight_kg,is_active
+PROD-001,Wireless Keyboard,Electronics,Input Devices,49.99,320,22.50,TechSupply Co,North America,2024-11-15,0.45,true
+PROD-002,Ergonomic Mouse,Electronics,Input Devices,34.99,185,15.00,TechSupply Co,North America,2024-12-01,0.12,true
+PROD-003,USB-C Hub 7-Port,Electronics,Accessories,59.99,92,28.00,ConnectWare,Europe,2024-10-20,0.18,true
+PROD-004,Standing Desk Mat,Office Furniture,Ergonomics,79.99,45,35.00,ErgoLife,North America,2025-01-10,2.50,true
+PROD-005,Monitor Arm Dual,Office Furniture,Ergonomics,129.99,67,58.00,ErgoLife,North America,2024-11-28,3.20,true
+PROD-006,Noise Cancelling Headphones,Electronics,Audio,199.99,140,85.00,AudioPro,Europe,2025-01-05,0.28,true
+PROD-007,Desk Lamp LED,Office Supplies,Lighting,39.99,210,16.00,BrightWork,North America,2024-12-15,1.10,true
+PROD-008,Webcam 4K,Electronics,Video,89.99,78,42.00,TechSupply Co,North America,2024-11-01,0.15,true
+PROD-009,Cable Management Kit,Office Supplies,Organization,24.99,430,8.50,ConnectWare,Europe,2025-01-20,0.60,true
+PROD-010,Laptop Stand Aluminum,Electronics,Accessories,54.99,155,24.00,TechSupply Co,North America,2024-12-10,1.80,true
+PROD-011,Whiteboard 48x36,Office Supplies,Writing,89.99,28,38.00,BoardMaster,North America,2024-10-05,5.50,true
+PROD-012,Mesh Office Chair,Office Furniture,Seating,349.99,35,155.00,ErgoLife,North America,2025-01-15,14.00,true
+PROD-013,Mechanical Keyboard,Electronics,Input Devices,129.99,95,55.00,TechSupply Co,North America,2024-12-20,0.90,true
+PROD-014,Document Scanner,Electronics,Imaging,179.99,42,78.00,ScanTech,Europe,2024-11-10,2.30,true
+PROD-015,Filing Cabinet 3-Drawer,Office Furniture,Storage,199.99,20,88.00,StoragePro,North America,2024-09-15,25.00,true
+PROD-016,Wireless Charger Pad,Electronics,Accessories,29.99,280,12.00,ConnectWare,Europe,2025-01-08,0.10,true
+PROD-017,Desk Organizer Set,Office Supplies,Organization,19.99,350,7.00,BrightWork,North America,2024-12-05,0.80,true
+PROD-018,Privacy Screen Filter,Electronics,Accessories,44.99,110,19.00,TechSupply Co,North America,2024-11-22,0.30,true
+PROD-019,Adjustable Standing Desk,Office Furniture,Desks,549.99,15,240.00,ErgoLife,North America,2024-10-30,32.00,true
+PROD-020,Portable Projector,Electronics,Video,299.99,30,130.00,AudioPro,Europe,2024-12-18,1.20,true
+PROD-021,Sticky Notes Bulk Pack,Office Supplies,Writing,12.99,520,4.50,BrightWork,North America,2025-01-12,0.40,true
+PROD-022,Bluetooth Speaker,Electronics,Audio,69.99,165,30.00,AudioPro,Europe,2024-11-05,0.55,true
+PROD-023,Ergonomic Footrest,Office Furniture,Ergonomics,59.99,55,26.00,ErgoLife,North America,2025-01-03,1.80,true
+PROD-024,USB Microphone,Electronics,Audio,79.99,88,35.00,AudioPro,Europe,2024-12-22,0.65,true
+PROD-025,Paper Shredder,Office Supplies,Equipment,149.99,25,65.00,StoragePro,North America,2024-10-15,8.00,true
+PROD-026,Wireless Presenter,Electronics,Accessories,39.99,200,17.00,TechSupply Co,North America,2025-01-18,0.08,true
+PROD-027,Bookcase 5-Shelf,Office Furniture,Storage,279.99,12,120.00,StoragePro,North America,2024-09-20,28.00,true
+PROD-028,Label Maker,Office Supplies,Organization,44.99,145,18.00,BrightWork,North America,2024-11-30,0.35,true
+PROD-029,Monitor 27inch 4K,Electronics,Displays,449.99,48,195.00,TechSupply Co,North America,2024-12-08,5.80,true
+PROD-030,Desk Phone Stand,Office Supplies,Organization,14.99,380,5.00,ConnectWare,Europe,2025-01-25,0.25,true

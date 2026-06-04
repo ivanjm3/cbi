@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This document defines the requirements for an ontology-based, NLP-driven query system. The system accepts natural language queries from users, interprets them through an ontology layer, routes them to specialized data-source agents via an orchestration hub, applies guardrails to the responses, and renders results as visualizations or plain text back to the user. The architecture follows a hub-and-spoke model with cross-cutting observability and a shared ontology store.
+This document defines the requirements for an ontology-based, NLP-driven query system. The system accepts natural language queries from users, interprets them through an ontology layer, routes them to specialized data-source agents via an orchestration hub, applies guardrails to the responses, and renders results as visualizations (which can be downloaded and if required dynamic and contains statistic information of data used for the visualization) back to the user. The architecture follows a hub-and-spoke model with cross-cutting observability and a shared ontology store.
 
 The end-to-end data flow is:
 
@@ -13,7 +13,7 @@ The end-to-end data flow is:
 ## Glossary
 
 - **System**: The complete ontology-based NLP query system described in this document.
-- **UI**: The web-based user interface through which end users submit queries and view results.
+- **UI**: The web-based user interface through which end users submit queries and view the visualizations (max 6 in a page 2x3 (each of the unique query or as requested by user)).
 - **Auth_Gateway**: The authentication and authorization component that sits between the UI and the NLP Translator. All requests pass through it.
 - **NLP_Translator**: The component that applies ontology concepts to parse, classify, and enrich natural language queries into structured intents.
 - **Ontology_Store**: The shared repository of domain ontology definitions, accessible by both the NLP_Translator and the Orchestrator_Hub. Supports graph DB, flat file, and RDBMS backends.
@@ -22,7 +22,7 @@ The end-to-end data flow is:
 - **Event_Broker**: An optional message-passing component conditionally activated by the Orchestrator_Hub for streaming or event-driven query types.
 - **Spoke_Agent**: A specialized agent responsible for querying a single designated data source and returning structured results to the Orchestrator_Hub.
 - **Guardrail_Layer**: The post-processing component applied to all agent responses before visualization, responsible for safety, policy, and schema validation.
-- **Visualization_Renderer**: The component that transforms validated agent responses into graphs or plain text for display in the UI.
+- **Visualization_Renderer**: The component that transforms validated agent responses into graphs along with its description for display in the UI.
 - **Observability_Bus**: A cross-cutting decorator applied at every service entry point to emit structured telemetry (logs, metrics, traces).
 - **Query_History_Store**: A persistent store of past queries and their resolved intents, used to bias future NLP_Translator routing toward historically successful paths.
 - **Structured_Intent**: The machine-readable representation of a user query produced by the NLP_Translator, containing at minimum: query_id (UUID), query_type (one of: lookup, aggregation, comparison, streaming), entity_refs (list of canonical ontology concept identifiers), routing_metadata (agent path hints), and timestamp.

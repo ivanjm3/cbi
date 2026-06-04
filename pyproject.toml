@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ontology-nlp-query-system"
+version = "0.1.0"
+description = "An ontology-based, NLP-driven query system with hub-and-spoke architecture"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pydantic>=2.10.0",
+    "numpy>=1.26.0",
+    "httpx2>=0.28.0",
+    "boto3>=1.35.0",
+    "strands-agents>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hypothesis>=6.100.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
