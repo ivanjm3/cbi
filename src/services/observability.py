@@ -63,12 +63,16 @@ def observability_decorator(service_name: str) -> Callable:
                 result = await func(*args, **kwargs)
                 duration_ms = int((time.monotonic() - start) * 1000)
 
+                # Extract response status code if result is a JSONResponse
+                status_code = getattr(result, "status_code", None)
+
                 log_entry = {
                     "service_name": service_name,
                     "operation_name": func.__name__,
                     "correlation_id": correlation_id,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "request_duration_ms": duration_ms,
+                    "status_code": status_code,
                 }
                 logger.info(json.dumps(log_entry))
 

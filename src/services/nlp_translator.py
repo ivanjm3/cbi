@@ -231,6 +231,21 @@ class NLPTranslator:
                 query_id=query_id,
             )
 
+        # Specificity check: require at least one strong keyword match.
+        # A "strong" match is a keyword that appears in a concept label as a
+        # substantial portion (not just a short substring of a longer label).
+        keywords = self._extract_keywords(query_text)
+        if not self._has_strong_match(keywords, entity_refs):
+            return NLPError(
+                error_code="AMBIGUOUS_INTENT",
+                error_message=(
+                    f"The query '{query_text}' is too vague to resolve to a specific "
+                    "data domain. Please include specific terms like 'revenue', "
+                    "'products', 'sales', 'inventory', etc."
+                ),
+                query_id=query_id,
+            )
+
         # Step 3: Classify query type — check cache first
         cache_key = self._classification_cache_key(query_text, entity_refs)
         cached_type = self._classification_cache.get(cache_key)
@@ -257,7 +272,7 @@ class NLPTranslator:
             query_id=query_id,
             query_type=query_type,
             entity_refs=entity_refs,
-            routing_metadata=routing_metadata,
+            routing_metadata={**routing_metadata, **self._extract_viz_hints(query_text)},
             timestamp=datetime.now(timezone.utc),
         )
 
@@ -420,3 +435,51 @@ class NLPTranslator:
         normalized_query = query_text.strip().lower()
         key_input = f"{normalized_query}|{','.join(sorted(entity_refs))}"
         return hashlib.sha256(key_input.encode()).hexdigest()
+
+    def _has_strong_match(self, keywords: list[str], entity_refs: list[str]) -> bool:
+        """Check if at least one keyword is a strong match against resolved concepts.
+
+        A "strong" match requires the keyword to cover a significant portion
+        of a concept label (not just a 3-letter fragment matching inside a
+        longer word). This prevents vague queries like "for each quarter"
+        from matching "Quarterly Report" on the substring "quarter".
+
+        Rules for a strong match:
+        - Keyword length >= 5 AND keyword matches a concept label word exactly,
+          OR keyword covers >= 60% of the concept label length.
+        - Alternatively, the keyword IS the full concept label (case-insensitive).
+
+        Args:
+            keywords: Extracted keywords from the query.
+            entity_refs: Resolved concept IDs.
+
+        Returns:
+            True if at least one keyword is a strong match.
+        """
+        # Strong domain keywords that always indicate intentional queries
+        domain_anchors = {
+            "revenue", "sales", "product", "products", "catalog", "inventory",
+            "stock", "price", "prices", "pricing", "supplier", "suppliers",
+            "order", "orders", "volume", "category", "categories", "region",
+            "regions", "report", "financial", "quarterly",
+        }
+
+        for keyword in keywords:
+            kw_lower = keyword.lower()
+            # Direct domain anchor match
+            if kw_lower in domain_anchors:
+                return True
+            # Check if keyword substantially matches any concept label
+            for concept_id in entity_refs:
+                concept = self.ontology_store.lookup_concept(concept_id)
+                if concept:
+                    label_lower = concept.label.lower()
+                    label_words = label_lower.split()
+                    # Exact word match within label
+                    if kw_lower in label_words:
+                        return True
+                    # Keyword covers >= 60% of label
+                    if len(kw_lower) >= 5 and len(kw_lower) / len(label_lower) >= 0.6:
+                        return True
+
+        return False

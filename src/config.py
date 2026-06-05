@@ -95,13 +95,14 @@ def get_bedrock_client():
     return session.client("bedrock-runtime", verify=False)
 
 
-def get_strands_bedrock_model(model_id: str | None = None):
+def get_strands_bedrock_model(model_id: str | None = None, max_tokens: int | None = None):
     """Get a Strands BedrockModel configured with our AWS profile.
 
     Passes the boto session so Strands uses the correct profile credentials.
 
     Args:
         model_id: Override model ID. Defaults to DEFAULT_MODEL_ID.
+        max_tokens: Optional max tokens limit for model output.
 
     Returns:
         A configured BedrockModel instance.
@@ -109,7 +110,10 @@ def get_strands_bedrock_model(model_id: str | None = None):
     from strands.models import BedrockModel
 
     session = get_boto3_session()
-    return BedrockModel(
-        model_id=model_id or DEFAULT_MODEL_ID,
-        boto_session=session,
-    )
+    kwargs: dict = {
+        "model_id": model_id or DEFAULT_MODEL_ID,
+        "boto_session": session,
+    }
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    return BedrockModel(**kwargs)

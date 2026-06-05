@@ -15,6 +15,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from src.services.logging_config import configure_logging
+configure_logging()
+
 from src.config import BEDROCK_GUARDRAIL_ID, BEDROCK_GUARDRAIL_VERSION, GUARDRAIL_PORT
 from src.models.shared import OrchestratorResponse, StructuredIntent
 from src.services.guardrail_layer import GuardrailLayer
@@ -62,12 +65,10 @@ class ValidateRequest(BaseModel):
 @app.get("/health")
 async def health_check() -> dict:
     """Health check endpoint."""
-    guardrail = get_guardrail()
     return {
         "status": "healthy",
         "service": "guardrail_layer",
         "port": GUARDRAIL_PORT,
-        "rules_loaded": len(guardrail.rules),
     }
 
 

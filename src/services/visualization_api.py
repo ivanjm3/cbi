@@ -14,6 +14,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from src.services.logging_config import configure_logging
+configure_logging()
+
 from src.config import VIZ_PORT
 from src.models.shared import OrchestratorResponse, StructuredIntent
 from src.services.observability import (

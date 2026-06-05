@@ -18,6 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from src.services.logging_config import configure_logging
+configure_logging()
+
 from src.config import (
     GUARDRAIL_URL,
     NLP_PORT,
@@ -111,9 +114,15 @@ async def serve_frontend() -> FileResponse:
 import asyncio
 import uuid
 
+# Cache for input guardrail results to avoid repeated Bedrock calls
+_input_guardrail_cache: dict[str, dict | None] = {}
+
 
 def _check_input_guardrails_bedrock(query_text: str) -> dict | None:
     """Check input via Bedrock Guardrails only. No local regex.
+
+    Results are cached per-query to avoid repeated Bedrock API calls
+    for the same input text.
 
     On Bedrock unavailability: fail open (allow content, log warning).
 
@@ -123,6 +132,10 @@ def _check_input_guardrails_bedrock(query_text: str) -> dict | None:
     Returns:
         Error dict with error_code and error_message if blocked, or None.
     """
+    # Check cache first
+    if query_text in _input_guardrail_cache:
+        return _input_guardrail_cache[query_text]
+
     from src.config import BEDROCK_GUARDRAIL_ID, BEDROCK_GUARDRAIL_VERSION
     if not BEDROCK_GUARDRAIL_ID:
         return None  # No guardrail configured
@@ -139,14 +152,17 @@ def _check_input_guardrails_bedrock(query_text: str) -> dict | None:
         if result.get("action") == "GUARDRAIL_INTERVENED":
             outputs = result.get("outputs", [])
             message = outputs[0].get("text", "Content blocked") if outputs else "Content policy violation"
-            return {
+            rejection = {
                 "error_code": "CONTENT_POLICY_VIOLATION",
                 "error_message": message,
                 "query_id": str(uuid.uuid4()),
             }
+            _input_guardrail_cache[query_text] = rejection
+            return rejection
     except Exception as e:
         logger.warning(f"Input Bedrock Guardrails check failed: {e}")
 
+    _input_guardrail_cache[query_text] = None
     return None  # Fail open
 
 

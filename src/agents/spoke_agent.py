@@ -21,6 +21,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from strands import Agent, tool
 
+from src.services.logging_config import configure_logging
+configure_logging()
+
 from src.config import AGENT_A_PORT, DEFAULT_MODEL_ID, S3_BUCKET, get_s3_client
 from src.models.shared import AgentResult, StructuredIntent
 from src.services.observability import (
@@ -271,10 +274,9 @@ SPOKE_SYSTEM_PROMPT = (
 
 spoke_agent = Agent(
     tools=[query_financial_data, query_product_catalog],
-    model=get_strands_bedrock_model(),
+    model=get_strands_bedrock_model(max_tokens=500),
     callback_handler=None,
     system_prompt=SPOKE_SYSTEM_PROMPT,
-    model_kwargs={"max_tokens": 500},
 )
 
 

@@ -20,6 +20,10 @@ import time
 
 import httpx
 
+# Configure logging before starting services
+from src.services.logging_config import configure_logging
+configure_logging()
+
 SERVICES = [
     {
         "name": "Orchestrator Hub",
@@ -68,7 +72,7 @@ def start_services() -> None:
         ]
         proc = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
+            stdout=sys.stdout,
             stderr=subprocess.STDOUT,
         )
         processes.append(proc)

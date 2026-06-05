@@ -368,6 +368,9 @@ class VisualizationRenderer:
     Uses LLM reasoning to analyze data and produce context-aware,
     dynamic chart specifications. Falls back to rule-based selection
     if the agent is unavailable.
+
+    Includes an in-memory render cache that avoids repeated LLM calls
+    for identical data payloads.
     """
 
     def __init__(self, model_id: str | None = None):
@@ -377,16 +380,33 @@ class VisualizationRenderer:
             model_id: Optional Bedrock model ID override for the Strands Agent.
         """
         from src.config import get_strands_bedrock_model
+        from src.services.lru_cache import LRUCache
 
         agent_kwargs: dict[str, Any] = {
             "system_prompt": VISUALIZER_SYSTEM_PROMPT,
             "tools": [analyze_data_structure, generate_chart_spec, generate_visualization_description],
             "callback_handler": None,
-            "model": get_strands_bedrock_model(model_id),
-            "model_kwargs": {"max_tokens": 500},
+            "model": get_strands_bedrock_model(model_id, max_tokens=500),
         }
 
         self._agent = Agent(**agent_kwargs)
+        # Cache rendered outputs keyed by hash of (payload + query_type)
+        self._render_cache: LRUCache[str, RenderedOutput] = LRUCache(max_size=200)
+
+    def _compute_render_cache_key(self, payload: dict[str, Any], query_type: str) -> str:
+        """Generate a deterministic cache key from payload data and query type.
+
+        Args:
+            payload: The data payload to render.
+            query_type: The query type (lookup, aggregation, comparison).
+
+        Returns:
+            SHA-256 hex digest as cache key.
+        """
+        import hashlib
+        # Deterministic serialization: sort keys, normalize
+        key_data = json.dumps(payload, sort_keys=True, default=str) + "|" + query_type
+        return hashlib.sha256(key_data.encode()).hexdigest()
 
     async def render(
         self, response: OrchestratorResponse, intent_metadata: dict | None = None
@@ -395,6 +415,7 @@ class VisualizationRenderer:
 
         Uses the Strands Agent to analyze data and select the best
         visualization. Falls back to rule-based rendering on failure.
+        Results are cached so identical payloads return instantly on repeat.
 
         Args:
             response: The validated orchestrator response.
@@ -428,12 +449,33 @@ class VisualizationRenderer:
                 metadata=metadata,
             )
 
+        # Check render cache before making expensive LLM call
+        query_type = intent_metadata.get("query_type", "lookup") if intent_metadata else "lookup"
+        cache_key = self._compute_render_cache_key(payload, query_type)
+        cached = self._render_cache.get(cache_key)
+        if cached is not None:
+            logger.info(json.dumps({
+                "service_name": "visualization_renderer",
+                "operation": "render",
+                "event": "cache_hit",
+                "cache_key": cache_key[:16],
+            }))
+            # Return cached result with updated metadata (new query_id, timestamp)
+            return RenderedOutput(
+                output_type=cached.output_type,
+                chart_type=cached.chart_type,
+                chart_data=cached.chart_data,
+                text_content=cached.text_content,
+                description=cached.description,
+                metadata=metadata,
+            )
+
         # Progressive response: compute stats immediately before LLM call
         stats_text = self._generate_stats_description(payload)
 
         # Use Strands Agent for dynamic visualization with rule-based fallback
         try:
-            return await self._agent_render(payload, intent_metadata, metadata, stats_text)
+            result = await self._agent_render(payload, intent_metadata, metadata, stats_text)
         except Exception as e:
             logger.warning(
                 json.dumps({
@@ -444,7 +486,11 @@ class VisualizationRenderer:
                     "error_message": str(e),
                 })
             )
-            return self._fallback_render(payload, metadata, stats_text)
+            result = self._fallback_render(payload, metadata, stats_text)
+
+        # Cache the rendered output for future identical requests
+        self._render_cache.put(cache_key, result)
+        return result
 
     async def _agent_render(
         self,
@@ -788,27 +834,7 @@ class VisualizationRenderer:
                 "description": "Data displayed as a table.",
             }
 
-        # Comparison queries → bar chart
-        if data_type == "comparison":
-            spec = _build_bar_spec(columns, rows, {})
-            spec["type"] = "bar"
-            row_count = payload.get("row_count", len(rows))
-            return {
-                "chart_type": "bar",
-                "chart_data": spec,
-                "description": f"Comparison data displayed as a bar chart across {len(rows)} groups.",
-            }
-
-        # Aggregation queries → bar chart
-        if data_type == "aggregation":
-            spec = _build_bar_spec(columns, rows, {})
-            spec["type"] = "bar"
-            return {
-                "chart_type": "bar",
-                "chart_data": spec,
-                "description": f"Aggregated data displayed as a bar chart with {len(rows)} metrics.",
-            }
-
+        # Detect column types
         has_time_col = any(
             any(p in col.lower() for p in DATE_PATTERNS) for col in columns
         )
@@ -818,13 +844,72 @@ class VisualizationRenderer:
             and not isinstance(rows[0][i], bool)
         ]
         categorical_cols = [c for c in columns if c not in numeric_cols]
+        num_rows = len(rows)
 
+        # Comparison queries: choose chart based on data shape
+        if data_type == "comparison":
+            group_col = payload.get("group_by", "")
+            # Few groups with single numeric → pie for proportional view
+            if num_rows <= 6 and len(numeric_cols) == 1:
+                spec = _build_pie_spec(columns, rows, {})
+                spec["type"] = "pie"
+                return {
+                    "chart_type": "pie",
+                    "chart_data": spec,
+                    "description": f"Proportional comparison across {num_rows} groups.",
+                }
+            # Time-based grouping → line chart
+            if has_time_col or any(p in group_col.lower() for p in DATE_PATTERNS):
+                spec = _build_line_spec(columns, rows, {})
+                spec["type"] = "line"
+                return {
+                    "chart_type": "line",
+                    "chart_data": spec,
+                    "description": f"Comparison over time across {num_rows} periods.",
+                }
+            # Default comparison → bar
+            spec = _build_bar_spec(columns, rows, {})
+            spec["type"] = "bar"
+            return {
+                "chart_type": "bar",
+                "chart_data": spec,
+                "description": f"Comparison data displayed as a bar chart across {num_rows} groups.",
+            }
+
+        # Aggregation queries: summarize metrics
+        if data_type == "aggregation":
+            # Single metric → show as a simple stat/table rather than bar
+            if num_rows == 1:
+                return {
+                    "chart_type": "table",
+                    "chart_data": {"type": "table", "columns": columns, "rows": rows},
+                    "description": "Aggregated metric summary.",
+                }
+            # Multiple metrics → horizontal bar
+            spec = _build_bar_spec(columns, rows, {})
+            spec["type"] = "bar"
+            return {
+                "chart_type": "bar",
+                "chart_data": spec,
+                "description": f"Aggregated data displayed as a bar chart with {num_rows} metrics.",
+            }
+
+        # Tabular/lookup data: apply smart rules
         if has_time_col and numeric_cols:
             chart_type = "line"
             spec = _build_line_spec(columns, rows, {})
         elif len(categorical_cols) >= 1 and len(numeric_cols) >= 1:
-            chart_type = "bar"
-            spec = _build_bar_spec(columns, rows, {})
+            # If few categories and one numeric → pie for proportional view
+            if num_rows <= 8 and len(numeric_cols) == 1 and len(categorical_cols) == 1:
+                chart_type = "pie"
+                spec = _build_pie_spec(columns, rows, {})
+            # If data has a time-like categorical (quarter names, months)
+            elif self._looks_like_time_series(columns, rows, categorical_cols):
+                chart_type = "line"
+                spec = _build_line_spec(columns, rows, {})
+            else:
+                chart_type = "bar"
+                spec = _build_bar_spec(columns, rows, {})
         elif len(numeric_cols) >= 2 and not categorical_cols:
             chart_type = "scatter"
             spec = _build_scatter_spec(columns, rows, {})
@@ -837,6 +922,55 @@ class VisualizationRenderer:
         description = f"Data displayed as a {chart_type} with {len(columns)} columns and {row_count} rows."
 
         return {"chart_type": chart_type, "chart_data": spec, "description": description}
+
+    @staticmethod
+    def _looks_like_time_series(
+        columns: list[str], rows: list[list], categorical_cols: list[str]
+    ) -> bool:
+        """Detect if categorical column values look like time periods.
+
+        Checks for patterns like Q1, Q2, Q3, Q4, Jan, Feb, 2024-Q1, etc.
+
+        Args:
+            columns: All column names.
+            rows: Data rows.
+            categorical_cols: Identified categorical columns.
+
+        Returns:
+            True if the data looks like a time series.
+        """
+        import re
+
+        time_patterns = [
+            r"^Q[1-4]$",               # Q1, Q2, Q3, Q4
+            r"^\d{4}[-\s]?Q[1-4]$",    # 2024-Q1, 2024 Q2
+            r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)",  # Month names
+            r"^\d{4}$",                 # Years: 2023, 2024
+            r"^\d{4}[-/]\d{2}$",       # 2024-01, 2024/03
+        ]
+
+        if not categorical_cols or not rows:
+            return False
+
+        # Check first categorical column
+        cat_col = categorical_cols[0]
+        cat_idx = columns.index(cat_col) if cat_col in columns else None
+        if cat_idx is None:
+            return False
+
+        values = [str(row[cat_idx]) for row in rows[:10] if cat_idx < len(row)]
+        if not values:
+            return False
+
+        # If majority of values match time patterns, it's a time series
+        matches = 0
+        for val in values:
+            for pattern in time_patterns:
+                if re.match(pattern, val.strip(), re.IGNORECASE):
+                    matches += 1
+                    break
+
+        return matches >= len(values) * 0.5
 
     def _extract_payload(self, response: OrchestratorResponse) -> dict[str, Any] | None:
         """Extract the first successful payload from agent results."""
