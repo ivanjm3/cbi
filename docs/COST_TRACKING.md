@@ -4,7 +4,7 @@ The system automatically tracks all Bedrock API calls and their costs.
 
 ## How It Works
 
-Every Bedrock invocation (NLP classification, orchestrator routing, spoke agent queries, visualization generation) is logged to S3 as individual JSON records organized by date:
+Every Bedrock invocation (NLP classification, input/output guardrails, visualization generation) is logged to S3 as individual JSON records organized by date:
 
 ```
 s3://visualization-poc-bucket/costs/{YYYY-MM-DD}/{uuid}.json
@@ -18,7 +18,11 @@ Each record contains:
 - Estimated cost in USD
 - Correlation ID (for request tracing)
 
-**Accuracy note:** The NLP Translator uses direct Bedrock API calls and captures exact token counts from the response. Agent-based components (orchestrator_hub, spoke_agent, visualization_renderer) use Strands SDK which doesn't expose token counts directly — these use estimated counts based on response length.
+**Accuracy note:** The NLP Translator uses direct Bedrock API calls and captures exact token counts from the response. The visualization renderer uses Strands SDK which doesn't expose token counts directly — these use estimated counts based on response length.
+
+**Components that do NOT make LLM calls:**
+- Orchestrator Hub — deterministic entity-ref routing
+- Spoke Agent — deterministic data source selection based on entity_refs
 
 ## Viewing Cost Reports
 
@@ -100,8 +104,12 @@ The default model is Claude 3.5 Haiku (`us.anthropic.claude-3-5-haiku-20241022-v
 ## Cost Efficiency Features
 
 - **Classification cache:** An in-memory LRU cache (1000 entries) prevents repeat Bedrock calls for identical query classifications.
-- **Result cache:** The orchestrator caches responses by deterministic intent hash, avoiding redundant agent invocations for identical queries.
-- **Fire-and-forget logging:** Cost record writes to S3 never block the request pipeline — failures are logged but swallowed.
+- **Input guardrail cache:** Same query text skips the Bedrock guardrail API call on repeat.
+- **Result cache:** The orchestrator caches responses by deterministic intent hash, avoiding redundant agent dispatches.
+- **Guardrail cache:** Output guardrail results cached by response content hash.
+- **Render cache:** Visualization results cached by payload + query context hash (200 entries).
+- **No LLM in spoke agent or orchestrator:** Data routing is fully deterministic — entity_refs from the NLP stage already identify the correct data source.
+- **Fire-and-forget logging:** Cost record writes to S3 never block the request pipeline.
 
 ## Scaling Considerations
 

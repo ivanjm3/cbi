@@ -175,7 +175,7 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
     2. Call Orchestrator Hub /internal/process with intent
     3. Call Guardrail Layer /internal/validate with response + intent
     4. Call Visualization Renderer /internal/render with validated response
-    5. Return RenderedOutput to client
+    5. Return RenderedOutput to client with latency breakdown
     If translation fails, returns 422 with NLPError details.
 
     Args:
@@ -185,14 +185,20 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
     Returns:
         JSONResponse with rendered output (200) or error details (422/500).
     """
+    import time
+
     correlation_id = extract_correlation_id(request)
     translator = get_translator()
+    latency: dict[str, int] = {}
+    total_start = time.monotonic()
 
-    # Run input guardrail check and NLP translation in parallel
+    # Step 1: NLP Translation + Input Guardrail (parallel)
+    step_start = time.monotonic()
     input_rejection, result = await asyncio.gather(
         asyncio.to_thread(_check_input_guardrails_bedrock, body.query_text),
         translator.translate(body.query_text),
     )
+    latency["nlp_translation_ms"] = int((time.monotonic() - step_start) * 1000)
 
     # If input guardrail rejects, return 422 immediately
     if input_rejection:
@@ -201,7 +207,6 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
             content=input_rejection,
         )
 
-    # Step 1: Use translation result
     if isinstance(result, NLPError):
         return JSONResponse(
             status_code=422,
@@ -216,8 +221,9 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
     headers = propagation_headers(correlation_id)
 
     # Step 2: Call Orchestrator Hub
+    step_start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             orchestrator_response = await client.post(
                 f"{ORCHESTRATOR_URL}/internal/process",
                 json={"structured_intent": intent.model_dump(mode="json")},
@@ -253,8 +259,10 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
                 "query_id": str(intent.query_id),
             },
         )
+    latency["orchestrator_ms"] = int((time.monotonic() - step_start) * 1000)
 
     # Step 3: Call Guardrail Layer
+    step_start = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             guardrail_response = await client.post(
@@ -297,10 +305,12 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
                 "query_id": str(intent.query_id),
             },
         )
+    latency["guardrail_ms"] = int((time.monotonic() - step_start) * 1000)
 
-    # Step 4: Call Visualization Renderer
+    # Step 4: Call Visualization Renderer (longer timeout for LLM agent)
+    step_start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             viz_response = await client.post(
                 f"{VIZ_URL}/internal/render",
                 json={
@@ -341,11 +351,18 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
                 "query_id": str(intent.query_id),
             },
         )
+    latency["visualization_ms"] = int((time.monotonic() - step_start) * 1000)
+    latency["total_ms"] = int((time.monotonic() - total_start) * 1000)
 
-    # Step 5: Return rendered output to client
+    # Step 5: Return rendered output with latency breakdown
     return JSONResponse(
         status_code=200,
-        content={"rendered_output": rendered_output},
+        content={
+            "rendered_output": rendered_output,
+            "latency": latency,
+            "query_id": str(intent.query_id),
+            "correlation_id": correlation_id,
+        },
     )
 
 

@@ -272,9 +272,43 @@ class NLPTranslator:
             query_id=query_id,
             query_type=query_type,
             entity_refs=entity_refs,
-            routing_metadata={**routing_metadata, **self._extract_viz_hints(query_text)},
+            routing_metadata={
+                **routing_metadata,
+                "query_text": query_text,
+                **self._extract_viz_hints(query_text),
+            },
             timestamp=datetime.now(timezone.utc),
         )
+
+    def _extract_viz_hints(self, query_text: str) -> dict:
+        """Extract visualization type hints from the query text.
+
+        Detects if the user explicitly requests a specific chart type
+        (scatter, line, pie, bar, table) and returns it as a hint for
+        the visualization renderer.
+
+        Args:
+            query_text: The original user query.
+
+        Returns:
+            Dict with 'requested_chart_type' if detected, otherwise empty.
+        """
+        import re
+        text_lower = query_text.lower()
+
+        chart_patterns = {
+            "scatter": r"\b(scatter\s*(plot|chart|graph)?|bubble\s*(chart|plot)?)\b",
+            "line": r"\b(line\s*(chart|graph|plot)|trend\s*(line|chart|graph))\b",
+            "pie": r"\b(pie\s*(chart|graph)|donut\s*(chart|graph))\b",
+            "bar": r"\b(bar\s*(chart|graph|plot)|histogram)\b",
+            "table": r"\b(table|tabular|spreadsheet)\b",
+        }
+
+        for chart_type, pattern in chart_patterns.items():
+            if re.search(pattern, text_lower):
+                return {"requested_chart_type": chart_type}
+
+        return {}
 
     def _get_history_bias(self, query_text: str) -> dict:
         """Check the Query History Store for similar past intents.

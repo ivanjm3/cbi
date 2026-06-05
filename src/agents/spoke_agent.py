@@ -1,8 +1,8 @@
-"""Unified Spoke Agent — Multi-source data agent using Strands Agents SDK.
+"""Unified Spoke Agent — Deterministic multi-source data agent.
 
-A single Strands agent with tools for querying both JSON and CSV data sources
-from S3. The orchestrator instructs which data source to query based on the
-structured intent's entity_refs and ontology context.
+Queries both JSON and CSV data sources from S3 based on entity_refs
+from the structured intent. Uses deterministic routing (no LLM) for
+fast, predictable data retrieval.
 
 Runs as a FastAPI process on port 8010 with POST /agents/spoke-agent/invoke.
 No retry on data source errors (single-attempt semantics).
@@ -19,12 +19,11 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from strands import Agent, tool
 
 from src.services.logging_config import configure_logging
 configure_logging()
 
-from src.config import AGENT_A_PORT, DEFAULT_MODEL_ID, S3_BUCKET, get_s3_client
+from src.config import AGENT_A_PORT, S3_BUCKET, get_s3_client
 from src.models.shared import AgentResult, StructuredIntent
 from src.services.observability import (
     extract_correlation_id,
@@ -38,10 +37,9 @@ S3_FINANCIAL_KEY = "data-sources/financial_data.json"
 S3_PRODUCT_KEY = "data-sources/product_catalog.csv"
 
 
-# --- Strands @tool decorated functions ---
+# --- Data source query functions ---
 
 
-@tool
 def query_financial_data(
     query_type: str, entity_refs: list[str], filters: str = ""
 ) -> str:
@@ -76,7 +74,6 @@ def query_financial_data(
         return json.dumps({"status": "error", "error": str(e), "data_source": "financial_data.json"})
 
 
-@tool
 def query_product_catalog(
     query_type: str, entity_refs: list[str], filters: str = ""
 ) -> str:
@@ -261,30 +258,11 @@ def _coerce_row(row: dict[str, str]) -> dict[str, Any]:
     return result
 
 
-# --- Strands Agent Instance ---
-
-from src.config import get_strands_bedrock_model
-
-SPOKE_SYSTEM_PROMPT = (
-    "You are a data retrieval agent. Call the appropriate tool and return ONLY the tool output.\n"
-    "Tools: query_financial_data (sales, revenue, quarterly data), "
-    "query_product_catalog (products, prices, stock).\n"
-    "Do not add text, markdown, or explanations. Output: raw tool JSON only."
-)
-
-spoke_agent = Agent(
-    tools=[query_financial_data, query_product_catalog],
-    model=get_strands_bedrock_model(max_tokens=500),
-    callback_handler=None,
-    system_prompt=SPOKE_SYSTEM_PROMPT,
-)
-
-
 # --- FastAPI Application ---
 
 app = FastAPI(
-    title="Unified Spoke Agent (Strands)",
-    description="Strands-based agent that queries both financial data and product catalog.",
+    title="Unified Spoke Agent",
+    description="Deterministic data agent that queries financial data and product catalog based on entity_refs.",
     version="1.0.0",
 )
 
@@ -310,9 +288,9 @@ async def health_check() -> dict:
 async def invoke_agent(request: Request, body: InvokeRequest) -> JSONResponse:
     """Invoke the unified spoke agent with a structured intent.
 
-    Uses the Strands Agent to determine which data source(s) to query
-    and how to filter the data. The agent calls tools that return
-    structured data (columns + rows), which is passed through as-is.
+    Uses deterministic entity_ref-based routing to query the correct
+    data source(s). No LLM call — the entity_refs from the NLP translator
+    already tell us which data to fetch.
 
     Args:
         request: The inbound FastAPI request.
@@ -336,102 +314,13 @@ async def invoke_agent(request: Request, body: InvokeRequest) -> JSONResponse:
         )
         return JSONResponse(status_code=200, content=result.model_dump(mode="json"))
 
-    try:
-        prompt = (
-            f"{intent.query_type} query for entities: {json.dumps(intent.entity_refs)}. "
-            f"Call the matching tool with query_type='{intent.query_type}' and "
-            f"entity_refs={json.dumps(intent.entity_refs)}."
-        )
-
-        agent_response = spoke_agent(prompt)
-
-        from src.services.bedrock_wrapper import track_agent_invocation
-        track_agent_invocation(
-            component="spoke_agent",
-            model_id=DEFAULT_MODEL_ID,
-            response=agent_response,
-            correlation_id=correlation_id,
-        )
-
-        response_text = str(agent_response)
-        payload = _extract_json_payload(response_text)
-        data_source = payload.get("data_source", "multi-source") if payload else "multi-source"
-
-        if payload and payload.get("status") != "error":
-            result = AgentResult(
-                status="success",
-                payload=payload,
-                error_type=None,
-                error_description=None,
-                agent_id=AGENT_ID,
-                data_source=data_source,
-            )
-        else:
-            # If LLM didn't return structured data, fall back to direct call
-            result = _fallback_direct_query(intent)
-
-    except Exception as e:
-        logger.error(
-            json.dumps({
-                "service_name": "spoke_agent",
-                "operation": "invoke_agent",
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "correlation_id": correlation_id,
-            })
-        )
-        # Fallback to deterministic query
-        result = _fallback_direct_query(intent)
-        result = AgentResult(
-            status="error",
-            payload=None,
-            error_type=type(e).__name__,
-            error_description=str(e),
-            agent_id=AGENT_ID,
-            data_source="multi-source",
-        )
+    # Direct deterministic query — entity_refs already identify the data source
+    result = _fallback_direct_query(intent)
 
     return JSONResponse(status_code=200, content=result.model_dump(mode="json"))
 
 
 # --- Helper functions ---
-
-
-def _extract_json_payload(text: str) -> dict[str, Any] | None:
-    """Extract a JSON payload from agent response text.
-
-    The agent should return the tool's raw JSON output. This function
-    finds and parses the first valid JSON object in the response.
-
-    Args:
-        text: The agent's text response.
-
-    Returns:
-        Parsed dict if found, None otherwise.
-    """
-    # Try the full text first
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    # Find JSON block in text
-    start = text.find("{")
-    if start < 0:
-        return None
-
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-        if depth == 0:
-            try:
-                return json.loads(text[start:i + 1])
-            except json.JSONDecodeError:
-                return None
-    return None
 
 
 def _fallback_direct_query(intent: StructuredIntent) -> AgentResult:

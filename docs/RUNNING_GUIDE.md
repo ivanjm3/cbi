@@ -234,13 +234,18 @@ Each record contains:
 ### Cost Per Query (Approximate)
 
 A single query through the full pipeline makes approximately:
-- 1 NLP classification call (Claude Haiku)
-- 1 Orchestrator routing call (Claude Haiku)
-- 1 Spoke Agent data retrieval call (Claude Haiku)
-- 1 Visualization rendering call (Claude Haiku)
-- 1 Embedding generation call (Titan Embeddings V2) — if history store is active
+- 1 NLP classification call (Claude Haiku) — **only on first occurrence, cached after**
+- 1 Input guardrail call (Bedrock Guardrails) — **only on first occurrence, cached after**
+- 1 Output guardrail call (Bedrock Guardrails) — **only on first occurrence for same data, cached after**
+- 1 Visualization rendering call (Claude Haiku via Strands) — **only on first occurrence for same data, cached after**
+- 0 Spoke Agent LLM calls — **deterministic routing, no LLM**
+- 0 Orchestrator LLM calls — **deterministic dispatch, no LLM**
 
-At Claude Haiku pricing ($0.25/1M input, $1.25/1M output), a typical query costs ~$0.001–$0.003.
+At Claude Haiku pricing ($0.25/1M input, $1.25/1M output), a typical first query costs ~$0.001–$0.003. Repeat queries cost $0 (all cached).
+
+**Latency profile:**
+- First query: ~30-40s (dominated by visualization LLM agent)
+- Repeat identical query: <1s (all caches hit)
 
 ---
 
@@ -270,4 +275,8 @@ Check which component is making the most calls:
 ```bash
 python scripts/cost_report.py today
 ```
-The orchestrator and visualization renderer can be switched to rule-based (non-LLM) mode by removing the Strands Agent and using the fallback paths.
+The system is optimized to minimize LLM calls:
+- Spoke Agent uses deterministic routing (no LLM)
+- Orchestrator uses direct entity-ref dispatch (no LLM)
+- NLP classification and visualization results are cached
+- Only the visualization renderer uses an LLM agent (Strands), and results are cached per payload+query

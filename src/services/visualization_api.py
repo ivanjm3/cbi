@@ -101,6 +101,8 @@ async def render_endpoint(request: Request, body: RenderRequest) -> JSONResponse
         intent_metadata = {
             "query_id": str(intent.query_id),
             "query_type": intent.query_type,
+            "query_text": intent.routing_metadata.get("query_text", ""),
+            "requested_chart_type": intent.routing_metadata.get("requested_chart_type"),
         }
         rendered = await renderer.render(response, intent_metadata)
 

@@ -350,16 +350,32 @@ def _infer_column_type(col_name: str, values: list) -> str:
 
 # --- Visualization Renderer System Prompt ---
 
-VISUALIZER_SYSTEM_PROMPT = (
-    "You are a chart generation agent. Analyze the data and produce a single JSON response:\n"
-    '{"chart_type": "bar|line|scatter|pie|table", "chart_data": <Chart.js spec>, "description": "<insights>"}\n\n'
-    "Rules:\n"
-    "- Time series → line. Categories + numbers → bar. Two numerics → scatter. ≤8 categories proportional → pie. Otherwise → table.\n"
-    "- Include tooltips, legend, responsive sizing in chart_data.\n"
-    "- Add trend lines/averages as annotations where useful.\n"
-    "- Description: explain key patterns, notable stats (highs, lows, averages).\n"
-    "- Output ONLY the JSON object. No surrounding text."
-)
+VISUALIZER_SYSTEM_PROMPT = """\
+You are an expert data visualization and BI analyst agent. Your job is to analyze data \
+and produce the single most insightful, appropriate visualization.
+
+Your analysis process:
+1. Examine the data columns, types, and values to understand what the data represents.
+2. Consider the user's original query to understand what insight they're looking for.
+3. If the user explicitly requested a chart type (scatter, line, bar, pie), use that type.
+4. Otherwise, choose the chart type that best reveals patterns and insights:
+   - Time series or trends over periods → line chart
+   - Correlation between two numeric variables → scatter plot
+   - Category comparisons with ≤6 items → pie chart (proportional)
+   - Category comparisons with many items → bar chart
+   - Distribution or ranking → bar chart
+   - Dense multi-column data → table
+5. Generate the chart specification and provide BI insights.
+
+Output EXACTLY one JSON object (no other text):
+{
+  "chart_type": "bar|line|scatter|pie|table",
+  "title": "Descriptive title",
+  "description": "Key insights: what patterns, outliers, or trends are visible. \
+What business decisions could this data inform?",
+  "chart_data": {<Chart.js compatible spec with labels, datasets, colors>}
+}
+"""
 
 
 class VisualizationRenderer:
@@ -451,7 +467,8 @@ class VisualizationRenderer:
 
         # Check render cache before making expensive LLM call
         query_type = intent_metadata.get("query_type", "lookup") if intent_metadata else "lookup"
-        cache_key = self._compute_render_cache_key(payload, query_type)
+        query_text = intent_metadata.get("query_text", "") if intent_metadata else ""
+        cache_key = self._compute_render_cache_key(payload, query_type + "|" + query_text)
         cached = self._render_cache.get(cache_key)
         if cached is not None:
             logger.info(json.dumps({
@@ -486,7 +503,8 @@ class VisualizationRenderer:
                     "error_message": str(e),
                 })
             )
-            result = self._fallback_render(payload, metadata, stats_text)
+            requested_chart = intent_metadata.get("requested_chart_type") if intent_metadata else None
+            result = self._fallback_render(payload, metadata, stats_text, requested_chart)
 
         # Cache the rendered output for future identical requests
         self._render_cache.put(cache_key, result)
@@ -501,9 +519,12 @@ class VisualizationRenderer:
     ) -> RenderedOutput:
         """Use the Strands Agent to produce a visualization.
 
+        Passes the user's original query, data summary, and any explicit
+        chart type request to the agent for intelligent visualization.
+
         Args:
             payload: The data payload to visualize.
-            intent_metadata: Query context.
+            intent_metadata: Query context including query_text and requested_chart_type.
             metadata: Output metadata.
             stats_text: Pre-computed statistical summary text.
 
@@ -513,27 +534,44 @@ class VisualizationRenderer:
         # Normalize payload to columns + rows for the agent
         columns, rows = self._normalize_payload(payload)
         query_type = intent_metadata.get("query_type", "lookup") if intent_metadata else "lookup"
+        query_text = intent_metadata.get("query_text", "") if intent_metadata else ""
+        requested_chart = intent_metadata.get("requested_chart_type") if intent_metadata else None
         row_count = payload.get("row_count", len(rows))
 
         if not columns or not rows:
-            # Can't visualize empty data — use stats description
             return self._fallback_render(payload, metadata)
 
-        # Prepare context for the agent
-        sample_rows = rows[:10]  # Limit to reduce tokens
-        prompt = (
-            f"Visualize this query result data.\n\n"
-            f"Query type: {query_type}\n"
-            f"Total rows: {row_count}\n"
-            f"Columns: {json.dumps(columns)}\n"
-            f"Sample data (first {len(sample_rows)} rows): {json.dumps(sample_rows, default=str)}\n\n"
-            f"Analyze the data, select the best chart type, generate the chart spec, "
-            f"and write a description with insights."
-        )
+        # Build a rich prompt with the actual user query and data context
+        sample_rows = rows[:15]  # Give agent enough data to reason about
+        data_type = payload.get("data_type", "unknown")
+
+        prompt_parts = [
+            f"User's original query: \"{query_text}\"" if query_text else "",
+            f"Query classification: {query_type}",
+            f"Data type: {data_type}",
+            f"Total rows: {row_count}",
+            f"Columns: {json.dumps(columns)}",
+            f"Data (first {len(sample_rows)} rows): {json.dumps(sample_rows, default=str)}",
+        ]
+
+        if requested_chart:
+            prompt_parts.append(
+                f"\nIMPORTANT: The user explicitly requested a '{requested_chart}' chart. Use that type."
+            )
+        else:
+            prompt_parts.append(
+                "\nAnalyze this data and choose the visualization that best reveals "
+                "patterns, correlations, or insights. Consider what story the data tells."
+            )
+
+        if stats_text:
+            prompt_parts.append(f"\nPre-computed statistics:\n{stats_text}")
+
+        prompt = "\n".join(p for p in prompt_parts if p)
 
         # Invoke agent
         result = self._agent(prompt)
-        
+
         # Track cost
         from src.services.bedrock_wrapper import track_agent_invocation
         from src.config import DEFAULT_MODEL_ID
@@ -542,16 +580,15 @@ class VisualizationRenderer:
             model_id=DEFAULT_MODEL_ID,
             response=result,
         )
-        
+
         agent_text = str(result)
 
-        # Parse agent output — the agent should have called our tools
-        # which produce deterministic chart specs. Extract the chart info.
-        chart_spec = self._extract_chart_from_agent(agent_text, columns, rows, payload)
+        # Parse the agent's JSON output
+        chart_spec = self._extract_chart_from_agent(agent_text, columns, rows, payload, requested_chart)
 
-        # Use pre-computed stats for text_content (always populated)
+        # Build description from agent insights + stats
         description = chart_spec.get("description", "Data visualization.")
-        if stats_text:
+        if stats_text and stats_text not in description:
             description = f"{description}\n\n{stats_text}"
 
         return RenderedOutput(
@@ -569,63 +606,142 @@ class VisualizationRenderer:
         columns: list[str],
         rows: list[list],
         payload: dict[str, Any],
+        requested_chart: str | None = None,
     ) -> dict[str, Any]:
         """Extract chart specification from agent output.
 
-        The agent calls tools that produce JSON specs. We parse those
-        from the conversation or fall back to rule-based if parsing fails.
+        Parses the JSON output from the visualization agent. The agent
+        should return a JSON object with chart_type, chart_data, title,
+        and description fields.
+
+        Falls back to rule-based selection only if JSON parsing completely fails.
 
         Args:
             agent_text: The agent's text output.
             columns: Data columns.
             rows: Data rows.
             payload: Full payload.
+            requested_chart: Explicitly requested chart type from user, if any.
 
         Returns:
-            Dict with chart_type, chart_data, description, etc.
+            Dict with chart_type, chart_data, description.
         """
-        # Try to find JSON chart spec in agent output
-        try:
-            # Look for JSON blocks in the agent response
-            start = agent_text.find("{")
-            if start >= 0:
-                # Find the matching closing brace
-                depth = 0
-                for i in range(start, len(agent_text)):
-                    if agent_text[i] == "{":
-                        depth += 1
-                    elif agent_text[i] == "}":
-                        depth -= 1
-                    if depth == 0:
-                        json_str = agent_text[start:i + 1]
-                        spec = json.loads(json_str)
-                        if "type" in spec:
-                            return {
-                                "chart_type": spec.get("type"),
-                                "chart_data": spec,
-                                "description": spec.get("title", "Data visualization."),
-                            }
-                        break
-        except (json.JSONDecodeError, ValueError):
-            pass
+        # Try to extract JSON from agent output (may have surrounding text)
+        spec = self._parse_json_from_text(agent_text)
 
-        # If we can't parse agent output, use the tool outputs directly
-        # (the tools were called during agent execution and produced results)
-        # Fall back to rule-based
+        if spec:
+            # Normalize field names (agent may use chart_type or type)
+            chart_type = spec.get("chart_type") or spec.get("type")
+            chart_data = spec.get("chart_data") or spec
+            description = spec.get("description") or spec.get("title", "Data visualization.")
+            title = spec.get("title", "")
+
+            if chart_type and chart_type in ("bar", "line", "scatter", "pie", "table"):
+                # If chart_data is the full spec itself, structure it properly
+                if "chart_data" not in spec:
+                    chart_data = {k: v for k, v in spec.items()
+                                  if k not in ("chart_type", "description")}
+                chart_data["type"] = chart_type
+                if title:
+                    chart_data["title"] = title
+
+                return {
+                    "chart_type": chart_type,
+                    "chart_data": chart_data,
+                    "description": description,
+                }
+
+        # If the user explicitly requested a chart type but agent failed to parse,
+        # use rule-based with that type forced
+        if requested_chart:
+            result = self._rule_based_chart(columns, rows, payload)
+            result["chart_type"] = requested_chart
+            # Rebuild chart data for the requested type
+            if requested_chart == "scatter":
+                spec = _build_scatter_spec(columns, rows, {})
+                spec["type"] = "scatter"
+                result["chart_data"] = spec
+            elif requested_chart == "line":
+                spec = _build_line_spec(columns, rows, {})
+                spec["type"] = "line"
+                result["chart_data"] = spec
+            elif requested_chart == "pie":
+                spec = _build_pie_spec(columns, rows, {})
+                spec["type"] = "pie"
+                result["chart_data"] = spec
+            return result
+
+        # Full fallback to rule-based
+        logger.warning(json.dumps({
+            "service_name": "visualization_renderer",
+            "operation": "_extract_chart_from_agent",
+            "event": "json_parse_failed",
+            "agent_text_preview": agent_text[:200],
+        }))
         return self._rule_based_chart(columns, rows, payload)
 
+    @staticmethod
+    def _parse_json_from_text(text: str) -> dict[str, Any] | None:
+        """Extract the first valid JSON object from text.
+
+        Handles cases where the agent wraps JSON in markdown code blocks
+        or adds surrounding text.
+
+        Args:
+            text: Raw text that may contain a JSON object.
+
+        Returns:
+            Parsed dict if found, None otherwise.
+        """
+        # Strip markdown code fences if present
+        import re
+        code_block = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if code_block:
+            try:
+                return json.loads(code_block.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Try to find the outermost JSON object
+        start = text.find("{")
+        if start < 0:
+            return None
+
+        # Find matching closing brace (handling nested objects)
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except json.JSONDecodeError:
+                    # Try the next JSON object if this one is malformed
+                    next_start = text.find("{", i + 1)
+                    if next_start >= 0:
+                        # Recurse on remainder
+                        return VisualizationRenderer._parse_json_from_text(text[next_start:])
+                    return None
+
+        return None
+
     def _fallback_render(
-        self, payload: dict[str, Any], metadata: dict, stats_text: str = ""
+        self, payload: dict[str, Any], metadata: dict, stats_text: str = "",
+        requested_chart_type: str | None = None,
     ) -> RenderedOutput:
         """Rule-based fallback rendering that handles all payload formats.
 
         Converts aggregation/comparison payloads into chart-friendly
         columns+rows format before applying chart selection rules.
+        If the user explicitly requested a chart type, forces that type.
 
         Args:
             payload: Data payload from the spoke agent.
             metadata: Output metadata.
             stats_text: Pre-computed statistical summary text.
+            requested_chart_type: Explicitly requested chart type from user, if any.
 
         Returns:
             RenderedOutput with chart or text.
@@ -656,7 +772,11 @@ class VisualizationRenderer:
                 metadata=metadata,
             )
 
-        chart_info = self._rule_based_chart(columns, rows, payload)
+        # If user explicitly requested a chart type, honor it
+        if requested_chart_type and requested_chart_type in ("bar", "line", "scatter", "pie", "table"):
+            chart_info = self._build_requested_chart(requested_chart_type, columns, rows, payload)
+        else:
+            chart_info = self._rule_based_chart(columns, rows, payload)
         
         # Use pre-computed stats or compute if not provided
         stats_desc = stats_text or self._generate_stats_description(payload)
@@ -672,6 +792,62 @@ class VisualizationRenderer:
             description=description,
             metadata=metadata,
         )
+
+    def _build_requested_chart(
+        self, chart_type: str, columns: list[str], rows: list[list], payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Build a chart spec for an explicitly user-requested chart type.
+
+        Forces the requested chart type regardless of data shape, using
+        the best available data mapping.
+
+        Args:
+            chart_type: The requested chart type.
+            columns: Data columns.
+            rows: Data rows.
+            payload: Full payload for context.
+
+        Returns:
+            Dict with chart_type, chart_data, description.
+        """
+        if chart_type == "scatter":
+            spec = _build_scatter_spec(columns, rows, {})
+            spec["type"] = "scatter"
+            return {
+                "chart_type": "scatter",
+                "chart_data": spec,
+                "description": "Scatter plot as requested by user.",
+            }
+        elif chart_type == "line":
+            spec = _build_line_spec(columns, rows, {})
+            spec["type"] = "line"
+            return {
+                "chart_type": "line",
+                "chart_data": spec,
+                "description": "Line chart as requested by user.",
+            }
+        elif chart_type == "pie":
+            spec = _build_pie_spec(columns, rows, {})
+            spec["type"] = "pie"
+            return {
+                "chart_type": "pie",
+                "chart_data": spec,
+                "description": "Pie chart as requested by user.",
+            }
+        elif chart_type == "bar":
+            spec = _build_bar_spec(columns, rows, {})
+            spec["type"] = "bar"
+            return {
+                "chart_type": "bar",
+                "chart_data": spec,
+                "description": "Bar chart as requested by user.",
+            }
+        else:
+            return {
+                "chart_type": "table",
+                "chart_data": {"type": "table", "columns": columns, "rows": rows[:100]},
+                "description": "Data displayed as table.",
+            }
 
     def _normalize_payload(self, payload: dict[str, Any]) -> tuple[list[str], list[list]]:
         """Normalize different payload formats into columns + rows.
