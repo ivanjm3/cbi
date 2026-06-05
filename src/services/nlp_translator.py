@@ -297,10 +297,14 @@ class NLPTranslator:
         text_lower = query_text.lower()
 
         chart_patterns = {
-            "scatter": r"\b(scatter\s*(plot|chart|graph)?|bubble\s*(chart|plot)?)\b",
-            "line": r"\b(line\s*(chart|graph|plot)|trend\s*(line|chart|graph))\b",
-            "pie": r"\b(pie\s*(chart|graph)|donut\s*(chart|graph))\b",
-            "bar": r"\b(bar\s*(chart|graph|plot)|histogram)\b",
+            "scatter": r"\b(scatter\s*(plot|chart|graph)?)\b",
+            "bubble": r"\b(bubble\s*(chart|plot|graph)?)\b",
+            "line": r"\b(line\s*(chart|graph|plot)|trend\s*(line|chart|graph)|area\s*(chart|graph))\b",
+            "pie": r"\b(pie\s*(chart|graph))\b",
+            "doughnut": r"\b(doughnut|donut)\s*(chart|graph|plot)?\b",
+            "radar": r"\b(radar|spider|web)\s*(chart|graph|plot|diagram)?\b",
+            "polarArea": r"\b(polar\s*area|polar)\s*(chart|graph|plot)?\b",
+            "bar": r"\b(bar\s*(chart|graph|plot)|histogram|column\s*(chart|graph))\b",
             "table": r"\b(table|tabular|spreadsheet)\b",
         }
 

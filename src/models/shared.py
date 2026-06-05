@@ -75,7 +75,7 @@ class RenderedOutput(BaseModel):
     along with a human-readable description and metadata for tracing.
     """
     output_type: Literal["chart", "text"]
-    chart_type: Literal["bar", "line", "scatter", "pie", "table"] | None = None
+    chart_type: str | None = None
     chart_data: dict | None = None
     text_content: str | None = None
     description: str

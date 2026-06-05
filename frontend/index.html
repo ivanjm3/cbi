@@ -449,6 +449,11 @@
                 return;
             }
 
+            const hasChart = output.chart_type && output.chart_type !== 'table'
+                && output.chart_data && Object.keys(output.chart_data).length > 0;
+            const hasTable = output.chart_type === 'table' && output.chart_data;
+            const hasText  = output.output_type === 'text';
+
             let html = '<div class="result-container">';
 
             // Latency breakdown
@@ -456,8 +461,19 @@
                 html += renderLatency(latency);
             }
 
-            // Stats text rendered first for immediate visibility (progressive rendering)
-            if (output.description || output.text_content) {
+            // Chart canvas placeholder
+            if (hasChart) {
+                html += '<div class="chart-wrapper"><canvas id="resultChart"></canvas></div>';
+            }
+
+            // Table
+            if (hasTable) {
+                html += renderTable(output.chart_data);
+            }
+
+            // Text / description — only show description if no chart rendered,
+            // or show it as a compact insight below the chart
+            if (hasText) {
                 html += '<div class="text-content">';
                 if (output.description) {
                     html += `<div class="description">${escapeHtml(output.description)}</div>`;
@@ -466,13 +482,22 @@
                     html += `<div class="stats">${escapeHtml(output.text_content)}</div>`;
                 }
                 html += '</div>';
-            }
-
-            // Chart or Table rendered alongside stats
-            if (output.chart_type === 'table' && output.chart_data) {
-                html += renderTable(output.chart_data);
-            } else if (output.chart_type && output.chart_data) {
-                html += '<div class="chart-wrapper"><canvas id="resultChart"></canvas></div>';
+            } else if (hasChart || hasTable) {
+                // Show description as a compact insight panel below the chart/table
+                const insight = (output.description || '').split('\n\n')[0]; // first sentence only
+                if (insight && insight !== 'Data visualization.') {
+                    html += `<div class="text-content"><div class="description">${escapeHtml(insight)}</div></div>`;
+                }
+            } else if (!hasChart && !hasTable) {
+                // Nothing rendered — show the description so the user sees something
+                html += '<div class="text-content">';
+                if (output.description) {
+                    html += `<div class="description">${escapeHtml(output.description)}</div>`;
+                }
+                if (output.text_content) {
+                    html += `<div class="stats">${escapeHtml(output.text_content)}</div>`;
+                }
+                html += '</div>';
             }
 
             // Metadata
@@ -484,8 +509,7 @@
             contentArea.innerHTML = html;
 
             // Render chart after DOM update
-            if (output.chart_type && output.chart_type !== 'table' && output.chart_data) {
-                console.log('Chart render:', output.chart_type, output.chart_data);
+            if (hasChart) {
                 renderChart(output.chart_type, output.chart_data);
             }
         }
@@ -500,67 +524,72 @@
                 currentChart = null;
             }
 
-            // Extract labels and datasets from chartData
-            // The renderer may return {type, labels, datasets, ...} or {type, data: {labels, datasets}}
-            let labels = chartData.labels || [];
-            let datasets = chartData.datasets || [];
+            let config;
 
-            // If chartData has a nested data object (Chart.js native format)
-            if (chartData.data && chartData.data.datasets) {
-                labels = chartData.data.labels || labels;
-                datasets = chartData.data.datasets || datasets;
-            }
+            // Detect if chartData is a complete Chart.js config (has type, data, and options fields)
+            if (chartData.type && chartData.data && typeof chartData.data === 'object') {
+                // Full Chart.js config — pass directly with sensible defaults
+                config = {
+                    ...chartData,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        ...(chartData.options || {})
+                    }
+                };
+            } else {
+                // Legacy format: flat labels/datasets — construct config for backward compatibility
+                let labels = chartData.labels || [];
+                let datasets = chartData.datasets || [];
 
-            // Sanitize datasets - replace null values with 0
-            datasets = datasets.map(ds => {
-                const sanitized = { ...ds };
-                if (Array.isArray(sanitized.data)) {
-                    sanitized.data = sanitized.data.map(val => {
-                        if (val === null || val === undefined) return 0;
-                        if (typeof val === 'object' && val !== null) {
-                            return {
-                                x: val.x === null || val.x === undefined ? 0 : val.x,
-                                y: val.y === null || val.y === undefined ? 0 : val.y
-                            };
-                        }
-                        return val;
-                    });
+                // If chartData has a nested data object (Chart.js native format)
+                if (chartData.data && chartData.data.datasets) {
+                    labels = chartData.data.labels || labels;
+                    datasets = chartData.data.datasets || datasets;
                 }
-                return sanitized;
-            });
 
-            // Skip if no usable data
-            if (datasets.length === 0) {
-                canvas.parentElement.innerHTML = '<p style="padding: 20px; color: #666; text-align: center;">No chart data available.</p>';
-                return;
-            }
+                // Sanitize datasets - replace null values with 0
+                datasets = datasets.map(ds => {
+                    const sanitized = { ...ds };
+                    if (Array.isArray(sanitized.data)) {
+                        sanitized.data = sanitized.data.map(val => {
+                            if (val === null || val === undefined) return 0;
+                            if (typeof val === 'object' && val !== null) {
+                                return {
+                                    x: val.x === null || val.x === undefined ? 0 : val.x,
+                                    y: val.y === null || val.y === undefined ? 0 : val.y
+                                };
+                            }
+                            return val;
+                        });
+                    }
+                    return sanitized;
+                });
 
-            const config = {
-                type: chartType,
-                data: {
-                    labels: labels,
-                    datasets: datasets
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: { position: 'top' },
-                        title: {
-                            display: !!chartData.title,
-                            text: chartData.title || ''
+                // Skip if no usable data
+                if (datasets.length === 0) {
+                    canvas.parentElement.innerHTML = '<p style="padding: 20px; color: #666; text-align: center;">No chart data available.</p>';
+                    return;
+                }
+
+                config = {
+                    type: chartType,
+                    data: {
+                        labels: labels,
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: { position: 'top' },
+                            title: {
+                                display: !!chartData.title,
+                                text: chartData.title || ''
+                            }
                         }
                     }
-                }
-            };
-
-            // Scatter/bubble charts don't use shared labels
-            if (chartType === 'scatter' || chartType === 'bubble') {
-                delete config.data.labels;
-                // Add axis labels if available
-                if (chartData.options && chartData.options.scales) {
-                    config.options.scales = chartData.options.scales;
-                }
+                };
             }
 
             try {
