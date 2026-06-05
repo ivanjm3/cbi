@@ -12,7 +12,12 @@
 ```bash
 # Create virtual environment
 python -m venv .venv
-.venv\Scripts\activate
+
+# Activate (Linux/macOS)
+source .venv/bin/activate
+
+# Activate (Windows)
+# .venv\Scripts\activate
 
 # Install dependencies
 pip install -e ".[dev]"
