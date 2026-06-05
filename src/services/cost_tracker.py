@@ -1,14 +1,22 @@
-"""Cost Tracker for AWS Bedrock usage — S3-backed.
+"""Cost Tracker for all AWS service usage — S3-backed.
 
-Tracks every Bedrock model invocation with input/output tokens and estimated cost.
+Tracks costs across all AWS services used by the project:
+- Bedrock model invocations (input/output tokens)
+- Bedrock Guardrails (per text unit)
+- S3 operations (PUT, GET, LIST requests + storage)
+
 Stores records as JSON objects in S3, organized by date for efficient querying.
 
 S3 structure:
   s3://visualization-poc-bucket/costs/{YYYY-MM-DD}/{uuid}.json
 
-Cost data is based on current Bedrock pricing:
-- Claude Haiku: $0.25 per 1M input tokens, $1.25 per 1M output tokens
+Pricing:
+- Claude Haiku: $0.25/$1.25 per 1M input/output tokens
+- Claude 3.5 Haiku: $0.80/$4.00 per 1M input/output tokens
+- Claude Sonnet 4: $3.00/$15.00 per 1M input/output tokens
 - Titan Embeddings V2: $0.02 per 1M tokens
+- Bedrock Guardrails: $0.75 per 1,000 text units (1 text unit = 1,000 chars)
+- S3 Standard: $0.005 per 1,000 PUT/POST, $0.0004 per 1,000 GET, $0.023/GB-month storage
 """
 
 import json
@@ -21,7 +29,7 @@ from src.config import S3_BUCKET, S3_COSTS_PREFIX, get_s3_client
 
 logger = logging.getLogger(__name__)
 
-# Bedrock pricing (per 1M tokens)
+# Bedrock LLM pricing (per 1M tokens)
 PRICING = {
     "us.anthropic.claude-3-5-haiku-20241022-v1:0": {
         "input_per_1m": 0.80,
@@ -44,6 +52,15 @@ PRICING = {
         "output_per_1m": 0.0,
     },
 }
+
+# Bedrock Guardrails pricing
+GUARDRAIL_PRICE_PER_1K_TEXT_UNITS = 0.75  # $0.75 per 1,000 text units
+GUARDRAIL_TEXT_UNIT_CHARS = 1000  # 1 text unit = 1,000 characters
+
+# S3 pricing (us-east-1 Standard)
+S3_PUT_PER_1K = 0.005       # $0.005 per 1,000 PUT/POST/COPY/LIST requests
+S3_GET_PER_1K = 0.0004      # $0.0004 per 1,000 GET/SELECT requests
+S3_STORAGE_PER_GB_MONTH = 0.023  # $0.023 per GB-month (first 50TB)
 
 
 class CostTracker:
@@ -84,6 +101,111 @@ class CostTracker:
             metadata: Optional additional metadata.
         """
         cost = self._calculate_cost(model_id, input_tokens, output_tokens)
+        self._write_record(
+            service="bedrock_llm",
+            component=component,
+            cost_usd=cost,
+            correlation_id=correlation_id,
+            details={
+                "model_id": model_id,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            },
+            metadata=metadata,
+        )
+
+    def log_guardrail_invocation(
+        self,
+        component: str,
+        text_length_chars: int,
+        action: str = "NONE",
+        correlation_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Log a Bedrock Guardrails ApplyGuardrail invocation.
+
+        Pricing: $0.75 per 1,000 text units (1 text unit = 1,000 characters).
+
+        Args:
+            component: Which component triggered the guardrail.
+            text_length_chars: Length of text evaluated (in characters).
+            action: Guardrail action result (NONE, GUARDRAIL_INTERVENED).
+            correlation_id: Request correlation ID.
+            metadata: Optional additional metadata.
+        """
+        text_units = max(1, text_length_chars / GUARDRAIL_TEXT_UNIT_CHARS)
+        cost = (text_units / 1000) * GUARDRAIL_PRICE_PER_1K_TEXT_UNITS
+        self._write_record(
+            service="bedrock_guardrails",
+            component=component,
+            cost_usd=cost,
+            correlation_id=correlation_id,
+            details={
+                "text_length_chars": text_length_chars,
+                "text_units": round(text_units, 2),
+                "action": action,
+            },
+            metadata=metadata,
+        )
+
+    def log_s3_operation(
+        self,
+        operation: str,
+        component: str,
+        object_size_bytes: int = 0,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Log an S3 API operation.
+
+        Pricing:
+        - PUT/POST/COPY/LIST: $0.005 per 1,000 requests
+        - GET/SELECT: $0.0004 per 1,000 requests
+        - Storage: $0.023 per GB-month (tracked separately)
+
+        Args:
+            operation: One of 'PUT', 'GET', 'LIST'.
+            component: Which component made the S3 call.
+            object_size_bytes: Size of object involved (for storage tracking).
+            correlation_id: Request correlation ID.
+        """
+        op_upper = operation.upper()
+        if op_upper in ("PUT", "POST", "COPY", "LIST"):
+            cost = S3_PUT_PER_1K / 1000  # cost per single request
+        elif op_upper in ("GET", "SELECT"):
+            cost = S3_GET_PER_1K / 1000
+        else:
+            cost = 0.0
+
+        self._write_record(
+            service="s3",
+            component=component,
+            cost_usd=cost,
+            correlation_id=correlation_id,
+            details={
+                "operation": op_upper,
+                "object_size_bytes": object_size_bytes,
+            },
+        )
+
+    def _write_record(
+        self,
+        service: str,
+        component: str,
+        cost_usd: float,
+        correlation_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Write a cost record to S3.
+
+        Args:
+            service: AWS service name (bedrock_llm, bedrock_guardrails, s3).
+            component: Application component that incurred the cost.
+            cost_usd: Estimated cost in USD.
+            correlation_id: Request correlation ID.
+            details: Service-specific details.
+            metadata: Optional additional metadata.
+        """
         now = datetime.now(timezone.utc)
         record_id = str(uuid.uuid4())
         date_str = now.date().isoformat()
@@ -91,13 +213,16 @@ class CostTracker:
         record = {
             "id": record_id,
             "timestamp": now.isoformat(),
-            "model_id": model_id,
+            "service": service,
             "component": component,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cost_usd": cost,
+            "cost_usd": cost_usd,
             "correlation_id": correlation_id,
+            "details": details or {},
             "metadata": metadata,
+            # Legacy fields for backward compat with existing reports
+            "model_id": (details or {}).get("model_id", ""),
+            "input_tokens": (details or {}).get("input_tokens", 0),
+            "output_tokens": (details or {}).get("output_tokens", 0),
         }
 
         try:
@@ -109,7 +234,6 @@ class CostTracker:
                 ContentType="application/json",
             )
         except Exception as e:
-            # Don't let tracking failures break the application
             logger.warning(f"Failed to log cost record to S3: {e}")
 
     def _calculate_cost(self, model_id: str, input_tokens: int, output_tokens: int) -> float:
@@ -204,12 +328,22 @@ class CostTracker:
             by_component[comp]["input_tokens"] += record.get("input_tokens", 0)
             by_component[comp]["output_tokens"] += record.get("output_tokens", 0)
 
+        # Breakdown by service
+        by_service: dict[str, dict] = {}
+        for record in records:
+            service = record.get("service", "bedrock_llm")  # legacy records default to bedrock_llm
+            if service not in by_service:
+                by_service[service] = {"service": service, "calls": 0, "cost_usd": 0.0}
+            by_service[service]["calls"] += 1
+            by_service[service]["cost_usd"] += record.get("cost_usd", 0.0)
+
         result: dict[str, Any] = {
             "total_calls": total_calls,
-            "total_cost_usd": round(total_cost, 4),
+            "total_cost_usd": round(total_cost, 6),
             "total_input_tokens": total_input,
             "total_output_tokens": total_output,
             "breakdown": sorted(by_component.values(), key=lambda x: x["cost_usd"], reverse=True),
+            "by_service": sorted(by_service.values(), key=lambda x: x["cost_usd"], reverse=True),
         }
         if date:
             result["date"] = date

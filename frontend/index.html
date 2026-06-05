@@ -471,9 +471,21 @@
                 html += renderTable(output.chart_data);
             }
 
-            // Text / description — only show description if no chart rendered,
-            // or show it as a compact insight below the chart
-            if (hasText) {
+            // Insight & Stats panel below the chart
+            if (hasChart || hasTable) {
+                const insight = output.description || '';
+                const stats = output.text_content || '';
+                if (insight || stats) {
+                    html += '<div class="text-content">';
+                    if (insight && insight !== 'Data visualization.') {
+                        html += `<div class="description"><strong>Insight:</strong> ${escapeHtml(insight)}</div>`;
+                    }
+                    if (stats) {
+                        html += `<div class="stats">${escapeHtml(stats)}</div>`;
+                    }
+                    html += '</div>';
+                }
+            } else if (hasText) {
                 html += '<div class="text-content">';
                 if (output.description) {
                     html += `<div class="description">${escapeHtml(output.description)}</div>`;
@@ -482,14 +494,8 @@
                     html += `<div class="stats">${escapeHtml(output.text_content)}</div>`;
                 }
                 html += '</div>';
-            } else if (hasChart || hasTable) {
-                // Show description as a compact insight panel below the chart/table
-                const insight = (output.description || '').split('\n\n')[0]; // first sentence only
-                if (insight && insight !== 'Data visualization.') {
-                    html += `<div class="text-content"><div class="description">${escapeHtml(insight)}</div></div>`;
-                }
-            } else if (!hasChart && !hasTable) {
-                // Nothing rendered — show the description so the user sees something
+            } else {
+                // Nothing rendered — show whatever we have
                 html += '<div class="text-content">';
                 if (output.description) {
                     html += `<div class="description">${escapeHtml(output.description)}</div>`;

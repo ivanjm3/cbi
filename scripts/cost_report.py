@@ -51,9 +51,21 @@ def print_daily_report(date: str | None = None):
                 f"{format_cost(item['cost_usd']):>15} "
                 f"{total_tokens:>15,}"
             )
+        print()
+    
+    if summary.get('by_service'):
+        print("Breakdown by AWS Service:")
+        print("-" * 70)
+        print(f"{'Service':<30} {'Calls':>10} {'Cost':>15}")
+        print("-" * 70)
+        for item in summary['by_service']:
+            print(
+                f"{item['service']:<30} "
+                f"{item['calls']:>10} "
+                f"{format_cost(item['cost_usd']):>15}"
+            )
         print("=" * 70)
     else:
-        print("No data for this date.")
         print("=" * 70)
 
 
