@@ -20,15 +20,15 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Create `frontend/src/types/grid.ts` with grid position constants and type helpers
     - _Requirements: 4.1, 7.1, 9.1, 10.2_
 
-- [ ] 2. State management and API layer
-  - [-] 2.1 Implement zustand Session Store with localStorage persistence
+- [x] 2. State management and API layer
+  - [x] 2.1 Implement zustand Session Store with localStorage persistence
     - Create `frontend/src/store/sessionStore.ts` with zustand `create` + `persist` middleware
     - Implement all actions: `submitQuery`, `addCard`, `removeCard`, `moveCard`, `resizeCard`, `pinCard`, `unpinCard`, `setActiveCard`, `toggleStatsPanel`, `saveBookmark`, `loadBookmark`, `deleteBookmark`, `startNewChat`
     - Implement localStorage error handling (quota exceeded warning, corrupted data fallback)
     - Persist session within 1 second of state changes (debounced)
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8_
 
-  - [-] 2.2 Implement card placement algorithm (`nextPosition`)
+  - [x] 2.2 Implement card placement algorithm (`nextPosition`)
     - Create `frontend/src/utils/gridHelpers.ts` with `nextPosition` function
     - Build occupied cell set accounting for card spans
     - Iterate positions in LTR-TTB order: (0,0), (1,0), (0,1), (1,1), (0,2), (1,2)
@@ -36,7 +36,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Implement `constrainResize` function for grid boundary enforcement
     - _Requirements: 10.3, 6.6_
 
-  - [-] 2.3 Implement API integration layer
+  - [x] 2.3 Implement API integration layer
     - Create `frontend/src/api/queryApi.ts` with `queryBackend` function
     - Implement 60-second timeout with AbortController
     - Handle HTTP 200, 422, 503/504 responses per contract
@@ -44,7 +44,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Implement `fetchSession` for `GET /sessions/:id`
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7_
 
-  - [-] 2.4 Implement chart type selection logic
+  - [x] 2.4 Implement chart type selection logic
     - Create `frontend/src/utils/chartSelector.ts` with `selectChartType` function
     - Implement explicit chart_type pass-through
     - Implement inference rules: time-series → line, categorical + numeric → bar, 2 numeric → scatter, categorical ≤8 + 1 numeric → pie, 3+ numeric → heatmap, else → table
@@ -80,25 +80,25 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify all pinned cards remain with original positions and data
     - **Validates: Requirements 5.5**
 
-- [~] 3. Checkpoint - Core logic validation
+- [x] 3. Checkpoint - Core logic validation
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Utility functions and formatters
-  - [~] 4.1 Implement CSV export utility
+- [x] 4. Utility functions and formatters
+  - [x] 4.1 Implement CSV export utility
     - Create `frontend/src/utils/csvExport.ts` with `exportCSV` function
     - Handle RFC 4180 escaping: commas, quotes, newlines in cell values
     - Generate column headers as first row, UTF-8 encoded
     - Trigger download via Blob + object URL
     - _Requirements: 5.3_
 
-  - [~] 4.2 Implement PNG export utility
+  - [x] 4.2 Implement PNG export utility
     - Create `frontend/src/utils/pngExport.ts` with `exportPNG` function
     - Use html2canvas or SVG serialization to capture chart area
     - Trigger download matching rendered card dimensions
     - Handle export failure with error callback
     - _Requirements: 5.2, 5.7_
 
-  - [~] 4.3 Implement timestamp and latency formatters
+  - [x] 4.3 Implement timestamp and latency formatters
     - Create `frontend/src/utils/formatters.ts` with `formatTimestamp` and `formatLatency`
     - `formatLatency(n)` → `↯ {N}ms`
     - `formatTimestamp(date)` → relative time if <24h, else "YYYY-MM-DD HH:mm"
@@ -122,22 +122,22 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify relative format for <24h, "YYYY-MM-DD HH:mm" for ≥24h
     - **Validates: Requirements 8.2**
 
-- [ ] 5. Application shell and layout components
-  - [~] 5.1 Implement App shell with three-panel layout
+- [x] 5. Application shell and layout components
+  - [x] 5.1 Implement App shell with three-panel layout
     - Create `frontend/src/App.tsx` with Sidebar (260px fixed), Canvas (fluid), StatsPanel (300px collapsible)
     - Use Tailwind flex layout with no horizontal overflow from 1024px to 2560px
     - Connect Stats Panel collapse to zustand store
     - Canvas expands when Stats Panel collapsed
     - _Requirements: 1.1, 1.5, 1.6, 1.8_
 
-  - [~] 5.2 Implement Sidebar component
+  - [x] 5.2 Implement Sidebar component
     - Create `frontend/src/components/Sidebar.tsx` with NewChatButton, ThreadList, BookmarkList
     - Display up to 50 thread history entries (most recent first)
     - Display bookmarks with formatted timestamps (relative <24h, absolute otherwise)
     - Implement bookmark delete with confirmation prompt
     - _Requirements: 1.2, 8.2, 8.5_
 
-  - [~] 5.3 Implement Chat Bar component
+  - [x] 5.3 Implement Chat Bar component
     - Create `frontend/src/components/ChatBar.tsx` fixed at viewport bottom
     - Text input with 500-char max, submit button, voice-input icon
     - Prevent submission on empty/whitespace-only input
@@ -145,7 +145,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Implement Web Speech API for voice transcription (hide icon if unsupported)
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-  - [~] 5.4 Implement Stats Panel component
+  - [x] 5.4 Implement Stats Panel component
     - Create `frontend/src/components/StatsPanel.tsx` with collapse toggle
     - Display per-column stats from active card's `metadata.columns`
     - Render row_count, null_percentage for all columns
@@ -162,8 +162,8 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify correct stat fields are rendered per column type
     - **Validates: Requirements 7.2, 7.3, 7.4, 7.5**
 
-- [ ] 6. Visualization cards and canvas
-  - [~] 6.1 Implement ChartRenderer component
+- [x] 6. Visualization cards and canvas
+  - [x] 6.1 Implement ChartRenderer component
     - Create `frontend/src/components/ChartRenderer.tsx` using Recharts
     - Render BarChart, LineChart, ScatterChart, PieChart, HeatmapChart, DataTable based on `selectChartType` result
     - Include hover tooltips displaying data point values
@@ -171,34 +171,34 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Handle invalid chart_data with error state
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
 
-  - [~] 6.2 Implement VisualizationCard component
+  - [x] 6.2 Implement VisualizationCard component
     - Create `frontend/src/components/VisualizationCard.tsx`
     - Compose: UserMessage, CardToolbar, ChartRenderer, TransparencyDrawer
     - Display user message above chart in conversational format
     - Handle click/focus to set active card in store
     - _Requirements: 2.6, 4.1_
 
-  - [~] 6.3 Implement CardToolbar component
+  - [x] 6.3 Implement CardToolbar component
     - Create `frontend/src/components/CardToolbar.tsx`
     - Buttons: Download PNG, Download CSV, Pin/Unpin, Expand fullscreen, Bookmark, Drag handle
     - Connect PNG/CSV exports to utility functions with error handling
     - Toggle pin state via store action with visual indicator
     - _Requirements: 5.1, 5.2, 5.3, 5.5, 5.6, 5.7_
 
-  - [~] 6.4 Implement TransparencyDrawer component
+  - [x] 6.4 Implement TransparencyDrawer component
     - Create `frontend/src/components/TransparencyDrawer.tsx`
     - Collapsible "How I got this" drawer, default collapsed
     - Three sections: paraphrased query rewrite, structured intent JSON, API call summary
     - Placeholder messages for missing data sections
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
-  - [~] 6.5 Implement FullscreenModal component
+  - [x] 6.5 Implement FullscreenModal component
     - Create `frontend/src/components/FullscreenModal.tsx`
     - Expand card to viewport as modal overlay
     - Close on button click or Escape key
     - _Requirements: 5.4_
 
-  - [~] 6.6 Implement Canvas grid with drag-and-drop
+  - [x] 6.6 Implement Canvas grid with drag-and-drop
     - Create `frontend/src/components/Canvas.tsx` with react-dnd DndProvider
     - CSS Grid 2 columns × 3 rows; single-column when <2 cards
     - Implement drag-to-reorder with visual drop indicators
@@ -222,18 +222,18 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify col + colSpan ≤ 2, row + rowSpan ≤ 3, no overlap with occupied cells
     - **Validates: Requirements 6.6**
 
-- [~] 7. Checkpoint - UI components complete
+- [x] 7. Checkpoint - UI components complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Session bookmarking and error handling
-  - [~] 8.1 Implement bookmark save/load/delete logic
+- [x] 8. Session bookmarking and error handling
+  - [x] 8.1 Implement bookmark save/load/delete logic
     - Wire "Save session" flow: prompt for name (100 char max), serialize state to Bookmark
     - Implement `loadBookmark` with unsaved-changes confirmation prompt
     - Implement `deleteBookmark` with confirmation prompt
     - Handle localStorage quota exceeded error on save
     - _Requirements: 8.1, 8.3, 8.4, 8.5, 8.6_
 
-  - [~] 8.2 Implement error card rendering and retry
+  - [x] 8.2 Implement error card rendering and retry
     - Create `frontend/src/components/ErrorCard.tsx`
     - Display 422 error with `error_message` from response; preserve prompt
     - Display 503/504 with retry button re-sending identical request
@@ -241,7 +241,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Integrate error cards into conversational thread in canvas
     - _Requirements: 9.3, 9.4, 9.5_
 
-  - [~] 8.3 Implement canvas-full notification
+  - [x] 8.3 Implement canvas-full notification
     - When canvas full and all cards pinned, display inline notification
     - Prompt user to unpin or remove a card
     - _Requirements: 10.5_
@@ -252,8 +252,8 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify serialize then deserialize produces equivalent state
     - **Validates: Requirements 8.1**
 
-- [ ] 9. Integration wiring and final assembly
-  - [~] 9.1 Wire all components together in App
+- [x] 9. Integration wiring and final assembly
+  - [x] 9.1 Wire all components together in App
     - Connect ChatBar submit → store.submitQuery → API → addCard → Canvas render
     - Connect Sidebar thread selection and bookmark load
     - Connect card click/focus → activeCardId → StatsPanel update
@@ -268,7 +268,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Test bookmark save/load/delete cycle
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
-- [~] 10. Final checkpoint - All tests pass
+- [x] 10. Final checkpoint - All tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

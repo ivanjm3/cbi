@@ -2,7 +2,9 @@
 
 ## Overview
 
-This system is an ontology-based, NLP-driven query platform built on a hub-and-spoke microservices architecture. A user submits a natural language question through a web UI. The system classifies the query against a domain ontology, routes it to the appropriate data-retrieval agent, applies content guardrails, generates a visualization, and returns the result — all in a single request cycle.
+This system is an ontology-based, NLP-driven query platform built on a hub-and-spoke microservices architecture. A user submits a natural language question through a React-based conversational BI frontend. The system classifies the query against a domain ontology, routes it to the appropriate data-retrieval agent, applies content guardrails, generates a visualization, and returns the result — all in a single request cycle.
+
+The frontend is a React 18 + Vite + Tailwind CSS single-page application providing a multi-panel visualization canvas with drag-and-drop, session persistence, and interactive charts via Recharts. It connects to the backend at port 8001 via `POST /query`.
 
 AI inference runs on Amazon Bedrock. The default LLM is Claude 3.5 Haiku; embeddings use Amazon Titan Embeddings V2. Persistent storage is entirely S3-backed (no local databases).
 
@@ -11,10 +13,10 @@ AI inference runs on Amazon Bedrock. The default LLM is Claude 3.5 Haiku; embedd
 ## High-Level Data Flow
 
 ```
-┌──────────┐     POST /query      ┌──────────────────┐
-│  Web UI  │ ──────────────────→  │  NLP Translator  │ (port 8001)
-│  (HTML)  │                      │  + Input Guard   │
-└──────────┘                      └────────┬─────────┘
+┌──────────────┐     POST /query      ┌──────────────────┐
+│  React SPA   │ ──────────────────→  │  NLP Translator  │ (port 8001)
+│  (Vite:5173) │                      │  + Input Guard   │
+└──────────────┘                      └────────┬─────────┘
                                            │
                               StructuredIntent (JSON)
                                            │
@@ -54,8 +56,8 @@ AI inference runs on Amazon Bedrock. The default LLM is Claude 3.5 Haiku; embedd
                                            │
                                            ▼
                                   ┌──────────────────┐
-                                  │  Web UI renders  │
-                                  │  Chart.js chart  │
+                                  │  React SPA       │
+                                  │  Recharts render │
                                   └──────────────────┘
 ```
 
@@ -182,19 +184,35 @@ AI inference runs on Amazon Bedrock. The default LLM is Claude 3.5 Haiku; embedd
 
 ---
 
-### 6. Frontend (served from port 8001)
+### 6. Frontend (React SPA)
 
-**File:** `frontend/index.html`
+**Directory:** `frontend/`
 
-**Role:** Single-page HTML application with query input, Chart.js rendering, query history sidebar, and latency breakdown display.
+**Role:** Conversational BI React application connecting to the NLP Translator backend at port 8001. Replaces the original single-page HTML testing UI.
 
-**Features:**
-- Query input with Enter key support
-- Chart.js rendering for bar, line, scatter, pie charts
-- Table rendering for tabular data
-- Query history panel with status indicators
-- Latency breakdown (NLP | Orchestrator | Guardrail | Visualization | Total)
-- Error display with error codes and query IDs
+**Stack:** React 18, Vite, TypeScript, Tailwind CSS, Recharts, react-dnd, zustand
+
+**Architecture:**
+- **App Shell** — Three-panel flex layout: Sidebar (260px) | Canvas (fluid) | StatsPanel (300px collapsible)
+- **Chat Bar** — Fixed bottom input, submits to `POST /query`, displays streaming skeleton during API calls
+- **Canvas** — 2×3 CSS Grid with drag-and-drop card reordering via react-dnd, resize handles, pinning
+- **VisualizationCard** — Composes ChartRenderer (Recharts), CardToolbar, TransparencyDrawer, FullscreenModal
+- **StatsPanel** — Displays per-column statistics from the card's metadata
+- **Sidebar** — Chat thread history, bookmarks with save/load/delete, "New Chat" button
+- **Session Store** — zustand with localStorage persistence for session state, bookmarks, layout
+
+**Key behaviors:**
+- Auto-selects chart type (line/bar/scatter/pie/heatmap/table) from column metadata
+- Pinned cards survive new query additions; oldest unpinned card replaced when canvas is full
+- Error cards with retry buttons for 503/504 and timeout errors
+- CSV/PNG export from card toolbar
+- Voice input via Web Speech API (progressive enhancement)
+
+**API contract consumed:**
+- `POST http://localhost:8001/query` — body: `{ "query_text": "..." }`
+- Success (200): `{ rendered_output: RenderedOutput, latency: {...}, query_id, correlation_id }`
+- Error (422): `{ error_code, error_message, query_id }`
+- Error (503/504): `{ error, message, query_id }`
 
 ---
 
@@ -320,7 +338,7 @@ The ontology acts as a gatekeeper — queries that don't match any concept are r
 
 ## Startup Sequence
 
-`python run_all.py` launches 5 uvicorn processes:
+**Backend:** `python run_all.py` launches 5 uvicorn processes:
 
 1. Orchestrator Hub (8002)
 2. Guardrail Layer (8003)
@@ -329,6 +347,8 @@ The ontology acts as a gatekeeper — queries that don't match any concept are r
 5. NLP Translator (8001)
 
 After health checks pass, `register_agents.py` registers the spoke agent with the orchestrator. Service logs stream to both terminal and `logs/system.log`.
+
+**Frontend:** `npm run dev` in the `frontend/` directory starts Vite dev server at http://localhost:5173. The frontend calls the backend directly at http://localhost:8001 (CORS enabled with `allow_origins=["*"]`).
 
 ---
 
@@ -358,7 +378,7 @@ After health checks pass, `register_agents.py` registers the spoke agent with th
 21. Renderer: returns RenderedOutput {chart_type, chart_data, description}
 22. Renderer: cache the result
 23. NLP → returns response + latency breakdown to client
-24. Frontend: renders Chart.js chart + stats + latency
+24. React SPA: parses rendered_output, selects chart type, renders Recharts chart + Stats Panel
 ```
 
 ---
@@ -397,6 +417,8 @@ SSL verification disabled globally for corporate proxy compatibility.
 
 ## Dependencies
 
+### Backend (Python)
+
 ```
 fastapi>=0.115.0       — Web framework
 uvicorn>=0.34.0        — ASGI server
@@ -405,4 +427,21 @@ numpy>=1.26.0          — Cosine similarity
 httpx>=0.28.0          — Async HTTP client
 boto3>=1.35.0          — AWS SDK (S3, Bedrock)
 strands-agents>=0.1.0  — AI agent framework (visualization renderer)
+```
+
+### Frontend (Node.js)
+
+```
+react ^19             — UI framework
+react-dom ^19         — DOM rendering
+recharts ^3           — Charting library (bar, line, scatter, pie, heatmap)
+react-dnd ^16         — Drag-and-drop
+react-dnd-html5-backend ^16 — HTML5 DnD backend
+zustand ^5            — State management with localStorage persistence
+tailwindcss ^3        — Utility-first CSS
+html2canvas ^1        — PNG export from DOM elements
+vite ^8               — Dev server and build tool
+typescript ~6         — Type checking
+vitest ^4             — Test runner
+fast-check ^4         — Property-based testing
 ```

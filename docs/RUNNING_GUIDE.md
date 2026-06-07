@@ -3,11 +3,14 @@
 ## Prerequisites
 
 - Python 3.11+
+- Node.js 18+ and npm
 - AWS CLI configured with profile `PowerUserAccess-654654478821`
 - Access to Amazon Bedrock (Claude Haiku + Titan Embeddings V2)
 - S3 bucket `visualization-poc-bucket` created
 
 ## Setup
+
+### Backend
 
 ```bash
 # Create virtual environment
@@ -26,7 +29,21 @@ pip install -e ".[dev]"
 python scripts/setup_s3.py
 ```
 
+### Frontend
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Return to project root
+cd ..
+```
+
 ## Starting the System
+
+### 1. Start the backend services
 
 ```bash
 python run_all.py
@@ -39,9 +56,60 @@ This starts 5 services:
 - Visualization Renderer → http://localhost:8004
 - Spoke Agent → http://localhost:8010
 
-Once you see "System Ready!", you can start submitting queries.
+Once you see "System Ready!", the backend is running.
 
-Press `Ctrl+C` to stop all services.
+### 2. Start the frontend (in a separate terminal)
+
+```bash
+cd frontend
+npm run dev
+```
+
+The Vite dev server starts at http://localhost:5173 (or the next available port). Open it in your browser.
+
+### Production build
+
+```bash
+cd frontend
+npm run build
+npm run preview   # serves the production build locally
+```
+
+The production build outputs to `frontend/dist/`.
+
+Press `Ctrl+C` in each terminal to stop services.
+
+---
+
+## Using the Frontend
+
+The React frontend at http://localhost:5173 provides a conversational BI interface:
+
+- **Chat Bar** (bottom) — Type natural language questions about your data (max 500 chars). Press Enter or click Send.
+- **Canvas** (center) — Visualizations appear as interactive cards in a 2×3 grid. Drag to reorder, resize via corner handles.
+- **Sidebar** (left) — Chat history, saved bookmarks, "New Chat" and "Save Session" buttons.
+- **Stats Panel** (right) — Click any card to see per-column statistics (min/max/mean, cardinality, time ranges, latency).
+
+### Key features
+
+- Charts auto-selected by data shape (line, bar, scatter, pie, heatmap, or table)
+- Pin cards to keep them across new queries
+- Export any card as PNG or CSV
+- "How I got this" transparency drawer on each card
+- Session auto-saved to localStorage; bookmarks persist across refreshes
+- Voice input via Web Speech API (Chrome/Edge)
+- Error cards with retry buttons for timeout/503 errors
+
+### Frontend scripts
+
+```bash
+cd frontend
+npm run dev       # Start dev server (hot reload)
+npm run build     # Production build
+npm run preview   # Serve production build locally
+npm run test      # Run unit tests
+npm run lint      # Run ESLint
+```
 
 ---
 

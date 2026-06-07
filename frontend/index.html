@@ -310,18 +310,6 @@
             font-family: monospace;
             font-size: 11px;
         }
-
-        /* Latency Breakdown */
-        .latency-panel {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-            font-size: 12px;
-            font-family: monospace;
-            color: #555;
-            line-height: 1.8;
-        }
     </style>
 </head>
 <body>
@@ -401,7 +389,7 @@
                 } else {
                     historyEntry.status = 'success';
                     historyEntry.result = data;
-                    showResult(data.rendered_output, data.latency);
+                    showResult(data.rendered_output);
                 }
             } catch (err) {
                 historyEntry.status = 'error';
@@ -443,67 +431,31 @@
             `;
         }
 
-        function showResult(output, latency) {
+        function showResult(output) {
             if (!output) {
                 showError({ error_message: 'No output received from server.', error_code: 'EMPTY_RESPONSE' });
                 return;
             }
 
-            const hasChart = output.chart_type && output.chart_type !== 'table'
-                && output.chart_data && Object.keys(output.chart_data).length > 0;
-            const hasTable = output.chart_type === 'table' && output.chart_data;
-            const hasText  = output.output_type === 'text';
-
             let html = '<div class="result-container">';
 
-            // Latency breakdown
-            if (latency) {
-                html += renderLatency(latency);
+            // Stats text rendered first for immediate visibility (progressive rendering)
+            if (output.description || output.text_content) {
+                html += '<div class="text-content">';
+                if (output.description) {
+                    html += `<div class="description">${escapeHtml(output.description)}</div>`;
+                }
+                if (output.text_content) {
+                    html += `<div class="stats">${escapeHtml(output.text_content)}</div>`;
+                }
+                html += '</div>';
             }
 
-            // Chart canvas placeholder
-            if (hasChart) {
-                html += '<div class="chart-wrapper"><canvas id="resultChart"></canvas></div>';
-            }
-
-            // Table
-            if (hasTable) {
+            // Chart or Table rendered alongside stats
+            if (output.chart_type === 'table' && output.chart_data) {
                 html += renderTable(output.chart_data);
-            }
-
-            // Insight & Stats panel below the chart
-            if (hasChart || hasTable) {
-                const insight = output.description || '';
-                const stats = output.text_content || '';
-                if (insight || stats) {
-                    html += '<div class="text-content">';
-                    if (insight && insight !== 'Data visualization.') {
-                        html += `<div class="description"><strong>Insight:</strong> ${escapeHtml(insight)}</div>`;
-                    }
-                    if (stats) {
-                        html += `<div class="stats">${escapeHtml(stats)}</div>`;
-                    }
-                    html += '</div>';
-                }
-            } else if (hasText) {
-                html += '<div class="text-content">';
-                if (output.description) {
-                    html += `<div class="description">${escapeHtml(output.description)}</div>`;
-                }
-                if (output.text_content) {
-                    html += `<div class="stats">${escapeHtml(output.text_content)}</div>`;
-                }
-                html += '</div>';
-            } else {
-                // Nothing rendered — show whatever we have
-                html += '<div class="text-content">';
-                if (output.description) {
-                    html += `<div class="description">${escapeHtml(output.description)}</div>`;
-                }
-                if (output.text_content) {
-                    html += `<div class="stats">${escapeHtml(output.text_content)}</div>`;
-                }
-                html += '</div>';
+            } else if (output.chart_type && output.chart_data) {
+                html += '<div class="chart-wrapper"><canvas id="resultChart"></canvas></div>';
             }
 
             // Metadata
@@ -515,7 +467,7 @@
             contentArea.innerHTML = html;
 
             // Render chart after DOM update
-            if (hasChart) {
+            if (output.chart_type && output.chart_type !== 'table' && output.chart_data) {
                 renderChart(output.chart_type, output.chart_data);
             }
         }
@@ -530,80 +482,47 @@
                 currentChart = null;
             }
 
-            let config;
-
-            // Detect if chartData is a complete Chart.js config (has type, data, and options fields)
-            if (chartData.type && chartData.data && typeof chartData.data === 'object') {
-                // Full Chart.js config — pass directly with sensible defaults
-                config = {
-                    ...chartData,
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: true,
-                        ...(chartData.options || {})
-                    }
-                };
-            } else {
-                // Legacy format: flat labels/datasets — construct config for backward compatibility
-                let labels = chartData.labels || [];
-                let datasets = chartData.datasets || [];
-
-                // If chartData has a nested data object (Chart.js native format)
-                if (chartData.data && chartData.data.datasets) {
-                    labels = chartData.data.labels || labels;
-                    datasets = chartData.data.datasets || datasets;
+            // Sanitize data - replace null values with 0
+            const datasets = (chartData.datasets || []).map(ds => {
+                const sanitized = { ...ds };
+                if (Array.isArray(sanitized.data)) {
+                    sanitized.data = sanitized.data.map(val => {
+                        if (val === null || val === undefined) return 0;
+                        if (typeof val === 'object' && val !== null) {
+                            return {
+                                x: val.x === null || val.x === undefined ? 0 : val.x,
+                                y: val.y === null || val.y === undefined ? 0 : val.y
+                            };
+                        }
+                        return val;
+                    });
                 }
+                return sanitized;
+            });
 
-                // Sanitize datasets - replace null values with 0
-                datasets = datasets.map(ds => {
-                    const sanitized = { ...ds };
-                    if (Array.isArray(sanitized.data)) {
-                        sanitized.data = sanitized.data.map(val => {
-                            if (val === null || val === undefined) return 0;
-                            if (typeof val === 'object' && val !== null) {
-                                return {
-                                    x: val.x === null || val.x === undefined ? 0 : val.x,
-                                    y: val.y === null || val.y === undefined ? 0 : val.y
-                                };
-                            }
-                            return val;
-                        });
-                    }
-                    return sanitized;
-                });
-
-                // Skip if no usable data
-                if (datasets.length === 0) {
-                    canvas.parentElement.innerHTML = '<p style="padding: 20px; color: #666; text-align: center;">No chart data available.</p>';
-                    return;
-                }
-
-                config = {
-                    type: chartType,
-                    data: {
-                        labels: labels,
-                        datasets: datasets
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: true,
-                        plugins: {
-                            legend: { position: 'top' },
-                            title: {
-                                display: !!chartData.title,
-                                text: chartData.title || ''
-                            }
+            const config = {
+                type: chartType,
+                data: {
+                    labels: chartData.labels || [],
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'top'
                         }
                     }
-                };
+                }
+            };
+
+            // Scatter charts don't use shared labels
+            if (chartType === 'scatter') {
+                delete config.data.labels;
             }
 
-            try {
-                currentChart = new Chart(canvas.getContext('2d'), config);
-            } catch (err) {
-                console.error('Chart.js error:', err);
-                canvas.parentElement.innerHTML = `<p style="padding: 20px; color: #c62828;">Chart rendering failed: ${err.message}</p>`;
-            }
+            currentChart = new Chart(canvas.getContext('2d'), config);
         }
 
         function renderTable(chartData) {
@@ -680,22 +599,8 @@
             if (entry.status === 'error') {
                 showError(entry.result);
             } else if (entry.status === 'success') {
-                showResult(entry.result.rendered_output, entry.result.latency);
+                showResult(entry.result.rendered_output);
             }
-        }
-
-        function renderLatency(latency) {
-            if (!latency || !latency.total_ms) return '';
-
-            const fmt = (ms) => ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's';
-
-            return `<div class="latency-panel">`
-                + `NLP: ${fmt(latency.nlp_translation_ms || 0)}`
-                + ` | Orchestrator: ${fmt(latency.orchestrator_ms || 0)}`
-                + ` | Guardrail: ${fmt(latency.guardrail_ms || 0)}`
-                + ` | Visualization: ${fmt(latency.visualization_ms || 0)}`
-                + ` | Total: ${fmt(latency.total_ms)}`
-                + `</div>`;
         }
 
         function escapeHtml(text) {
