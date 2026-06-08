@@ -1,14 +1,23 @@
 /**
- * App shell with professional BI layout.
+ * App shell with professional BI layout — full integration wiring.
  *
- * Layout: Sidebar (260px/48px) | MainContent (fluid) | TraceabilityPanel (360px, hidden)
+ * Layout: Sidebar (260px/48px) | MainContent (fluid) | StatsPanel | TraceabilityPanel (360px, hidden)
  * MainContent contains: ChatThread + FooterBar + ChatInput stacked vertically.
  *
- * Connects sidebar collapse and traceability panel visibility to zustand store.
+ * Connections:
+ * - ChatInput submit → store.submitQuery → queryBackend API → append response to ChatThread
+ * - FooterBar click → toggle TraceabilityPanel visibility via store
+ * - Card click/focus → activeCardId → StatsPanel + TraceabilityPanel update
+ * - Sidebar: thread selection, saved prompt load (with unsaved-changes warning), new chat
+ * - Session restore from localStorage on app load (via zustand persist middleware)
+ * - Streaming indicator shows during API calls and dismisses on response
+ * - Storage error notification when localStorage persist fails
+ * - Design System tokens applied consistently across all components
+ *
  * No horizontal overflow on viewports 1024px–2560px.
  * Light theme with Inter font, 14px base size.
  *
- * Requirements: 1.1, 1.3, 1.4, 1.7
+ * Requirements: 1.1, 1.3, 1.4, 1.7, 2.2, 2.6, 2.7, 2.8, 3.1, 3.4, 7.1, 9.2, 10.5, 10.6, 11.5
  */
 
 import { useSessionStore } from './store/sessionStore';
@@ -17,6 +26,62 @@ import { ChatThread } from './components/ChatThread';
 import { FooterBar } from './components/FooterBar';
 import { ChatInput } from './components/ChatInput';
 import { TraceabilityPanel } from './components/TraceabilityPanel';
+import { StatsPanel } from './components/StatsPanel';
+
+/**
+ * Non-blocking storage error banner.
+ * Displays when localStorage persistence fails (quota exceeded, unavailable).
+ * Requirement 10.5: non-blocking warning without losing in-memory state.
+ */
+function StorageErrorBanner() {
+  const storageError = useSessionStore((s) => s.storageError);
+  const clearStorageError = useSessionStore((s) => s.clearStorageError);
+
+  if (!storageError) return null;
+
+  return (
+    <div
+      role="alert"
+      aria-live="polite"
+      className="flex items-center gap-2 border-b border-status-warning/30 bg-amber-50 px-4 py-2 text-sm text-status-warning"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        className="h-4 w-4 flex-shrink-0"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+        />
+      </svg>
+      <span className="flex-1">{storageError}</span>
+      <button
+        type="button"
+        onClick={clearStorageError}
+        className="rounded p-1 text-status-warning hover:bg-amber-100 transition-colors"
+        aria-label="Dismiss storage warning"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="h-4 w-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
 
 function App() {
   const traceabilityPanelVisible = useSessionStore(
@@ -24,23 +89,29 @@ function App() {
   );
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg-primary">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg-primary font-sans">
       {/* Sidebar (left) — collapses between 260px and 48px */}
       <Sidebar />
 
       {/* Main content (fluid center) */}
       <main className="flex flex-1 min-w-0 flex-col min-h-0">
+        {/* Non-blocking storage error banner (Req 10.5) */}
+        <StorageErrorBanner />
+
         {/* Chat thread — takes up all available space */}
         <ChatThread />
 
-        {/* Footer bar — traceability toggle */}
+        {/* Footer bar — traceability toggle (Req 3.1) */}
         <FooterBar />
 
-        {/* Chat input — fixed at bottom */}
+        {/* Chat input — fixed at bottom (Req 2.2) */}
         <ChatInput />
       </main>
 
-      {/* Traceability Panel (right) — 360px, hidden by default */}
+      {/* Stats Panel (right rail) — collapsible (Req 7.1) */}
+      <StatsPanel />
+
+      {/* Traceability Panel (right) — 360px, hidden by default (Req 3.1, 3.4) */}
       {traceabilityPanelVisible && <TraceabilityPanel />}
     </div>
   );

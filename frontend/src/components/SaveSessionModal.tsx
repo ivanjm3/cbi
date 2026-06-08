@@ -1,9 +1,9 @@
 /**
  * SaveSessionModal component.
  *
- * Prompts the user to enter a session name (max 100 chars) and saves a
- * bookmark containing the current state. Handles localStorage quota exceeded
- * errors gracefully.
+ * Prompts the user to enter a session name (max 100 chars) and saves the
+ * current session as a SavedPrompt. Handles localStorage quota exceeded
+ * errors gracefully with a user-facing error message.
  *
  * Requirements: 8.1, 8.6
  */
@@ -16,17 +16,17 @@ export interface SaveSessionModalProps {
 }
 
 export function SaveSessionModal({ onClose }: SaveSessionModalProps) {
-  const saveBookmark = useSessionStore((s) => s.saveBookmark);
-  const workspaceName = useSessionStore((s) => s.workspaceName);
+  const saveSavedPrompt = useSessionStore((s) => s.saveSavedPrompt);
+  const storageError = useSessionStore((s) => s.storageError);
+  const clearStorageError = useSessionStore((s) => s.clearStorageError);
 
-  const [name, setName] = useState(workspaceName || '');
-  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
-    inputRef.current?.select();
   }, []);
 
   // Close on Escape
@@ -41,26 +41,38 @@ export function SaveSessionModal({ onClose }: SaveSessionModalProps) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  // Clear storage error on unmount
+  useEffect(() => {
+    return () => {
+      clearStorageError();
+    };
+  }, [clearStorageError]);
+
   const handleSave = useCallback(() => {
     const trimmed = name.trim();
     if (!trimmed) {
-      setError('Please enter a session name.');
+      setLocalError('Please enter a session name.');
       return;
     }
     if (trimmed.length > 100) {
-      setError('Session name must be 100 characters or fewer.');
+      setLocalError('Session name must be 100 characters or fewer.');
       return;
     }
 
-    try {
-      saveBookmark(trimmed);
+    // Clear any previous errors
+    setLocalError(null);
+    clearStorageError();
+
+    // Attempt save — store will set storageError on quota exceeded
+    saveSavedPrompt(trimmed);
+
+    // Check if the store reported a storage error (set synchronously)
+    const currentError = useSessionStore.getState().storageError;
+    if (!currentError) {
       onClose();
-    } catch {
-      setError(
-        'Unable to save session. Storage may be full — try deleting older bookmarks to free space.',
-      );
     }
-  }, [name, saveBookmark, onClose]);
+    // If there's a storage error, the modal stays open showing the error
+  }, [name, saveSavedPrompt, clearStorageError, onClose]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -72,6 +84,8 @@ export function SaveSessionModal({ onClose }: SaveSessionModalProps) {
     [handleSave],
   );
 
+  const displayError = localError || storageError;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -82,12 +96,12 @@ export function SaveSessionModal({ onClose }: SaveSessionModalProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="mx-4 w-full max-w-sm rounded-lg bg-white dark:bg-gray-800 p-6 shadow-xl">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+      <div className="mx-4 w-full max-w-sm rounded-lg bg-bg-secondary p-6 shadow-panel">
+        <h3 className="text-base font-semibold text-text-primary">
           Save Session
         </h3>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Enter a name for this session bookmark.
+        <p className="mt-1 text-sm text-text-secondary">
+          Enter a name for this saved prompt.
         </p>
 
         <div className="mt-4">
@@ -97,26 +111,26 @@ export function SaveSessionModal({ onClose }: SaveSessionModalProps) {
             value={name}
             onChange={(e) => {
               setName(e.target.value);
-              setError(null);
+              setLocalError(null);
             }}
             onKeyDown={handleKeyDown}
             maxLength={100}
             placeholder="My analysis session"
-            className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full rounded-md border border-border-default bg-bg-input px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
             aria-label="Session name"
           />
-          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500 text-right">
+          <p className="mt-1 text-xs text-text-muted text-right">
             {name.length}/100
           </p>
         </div>
 
         {/* Error message */}
-        {error && (
+        {displayError && (
           <div
-            className="mt-2 rounded-md bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-400"
+            className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-status-error"
             role="alert"
           >
-            {error}
+            {displayError}
           </div>
         )}
 
@@ -124,14 +138,14 @@ export function SaveSessionModal({ onClose }: SaveSessionModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="rounded-md px-3 py-2 text-sm font-medium text-text-secondary hover:bg-bg-input"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="rounded-md bg-blue-600 dark:bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="rounded-md bg-accent-primary px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent-primary"
           >
             Save
           </button>

@@ -1,222 +1,186 @@
 /**
  * StatsPanel component.
- * Displays per-column statistics for the active visualization card.
- * Includes latency badge, row count, and column-level stats by type.
  *
- * On desktop (≥1024px): Renders as a 300px collapsible right rail.
- * On narrow (<1024px): Renders as a collapsible accordion below the canvas.
- *   - Accordion header shows active card query title + latency badge.
- *   - Expanding reveals the same per-column stats content.
- *   - Default collapsed on narrow screens.
+ * Collapsible right rail displaying per-column statistical metadata
+ * for the active VisualizationCard. Reads metadata.columns from the
+ * active card's renderedOutput when a card is clicked.
  *
- * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 1.5, 1.6
+ * Displays:
+ * - Latency badge (↯ {N}ms) from metadata.latency_ms
+ * - Per-column: row_count + null_percentage (1 decimal)
+ * - Numeric columns: min, max, mean, median, std_dev (2 decimals)
+ * - Categorical columns: cardinality
+ * - Time-series columns: time_range_start, time_range_end (ISO 8601)
+ *
+ * Empty state when no card is active or no columns available.
+ * Connected to zustand store for activeCardId and statsPanelCollapsed.
+ *
+ * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8
  */
 
-import { useState } from 'react';
 import { useSessionStore } from '../store/sessionStore';
 import { formatLatency } from '../utils/formatters';
 import type { ColumnMeta } from '../types';
 
-interface StatsPanelProps {
-  collapsed: boolean;
-  onToggle: () => void;
-}
-
 // ---------------------------------------------------------------------------
-// Stats content — shared between desktop rail and mobile accordion
+// Main StatsPanel component
 // ---------------------------------------------------------------------------
 
-function StatsContent() {
+export function StatsPanel() {
   const activeCardId = useSessionStore((s) => s.activeCardId);
   const cards = useSessionStore((s) => s.cards);
+  const statsPanelCollapsed = useSessionStore((s) => s.statsPanelCollapsed);
+  const toggleStatsPanel = useSessionStore((s) => s.toggleStatsPanel);
 
-  const activeCard = activeCardId
-    ? cards.find((c) => c.id === activeCardId) ?? null
-    : null;
-
+  const activeCard = activeCardId ? cards[activeCardId] ?? null : null;
   const metadata = activeCard?.renderedOutput?.metadata ?? null;
   const columns = metadata?.columns ?? [];
 
-  if (!activeCard) {
+  if (statsPanelCollapsed) {
     return (
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        No card selected
-      </p>
-    );
-  }
-
-  if (columns.length === 0) {
-    return (
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        No column statistics available
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Latency badge */}
-      {metadata?.latency_ms != null && (
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center rounded bg-blue-100 dark:bg-blue-900 px-2 py-0.5 text-xs font-medium text-blue-800 dark:text-blue-200">
-            {formatLatency(metadata.latency_ms)}
-          </span>
-        </div>
-      )}
-
-      {/* Row count */}
-      {metadata?.row_count != null && (
-        <div className="text-sm text-gray-700 dark:text-gray-300">
-          <span className="font-medium">Row count:</span>{' '}
-          {metadata.row_count.toLocaleString()}
-        </div>
-      )}
-
-      {/* Column statistics */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          Column Statistics
-        </h3>
-        {columns.map((col) => (
-          <ColumnStatsSection key={col.name} column={col} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Desktop Stats Panel (right rail)
-// ---------------------------------------------------------------------------
-
-export function StatsPanel({ collapsed, onToggle }: StatsPanelProps) {
-  return (
-    <aside
-      className={`hidden lg:flex h-full border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-col transition-[width] duration-200 ease-in-out overflow-hidden ${
-        collapsed ? 'w-0 min-w-0' : 'w-[300px] min-w-[300px]'
-      }`}
-      aria-label="Stats panel"
-      aria-hidden={collapsed}
-    >
-      {/* Header */}
-      <div className="p-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          Statistics
-        </span>
+      <aside
+        className="flex h-full w-10 min-w-[40px] flex-col items-center border-l border-border-default bg-bg-secondary pt-3"
+        aria-label="Stats panel collapsed"
+      >
         <button
           type="button"
-          onClick={onToggle}
-          className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          onClick={toggleStatsPanel}
+          className="rounded p-1 text-text-muted hover:text-text-secondary hover:bg-accent-subtle transition-colors"
+          aria-label="Expand stats panel"
+          title="Expand stats panel"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+            />
+          </svg>
+        </button>
+      </aside>
+    );
+  }
+
+  return (
+    <aside
+      className="flex h-full w-[280px] min-w-[280px] flex-col border-l border-border-default bg-bg-secondary shadow-panel"
+      aria-label="Stats panel"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border-default px-4 py-3">
+        <h2 className="text-sm font-semibold text-text-primary">Statistics</h2>
+        <button
+          type="button"
+          onClick={toggleStatsPanel}
+          className="rounded p-1 text-text-muted hover:text-text-secondary hover:bg-accent-subtle transition-colors"
           aria-label="Collapse stats panel"
         >
-          ✕
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
         </button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <StatsContent />
-      </div>
+      {!activeCard ? (
+        /* Empty state: no card selected */
+        <div className="flex flex-1 items-center justify-center p-4">
+          <div className="text-center">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="mx-auto h-10 w-10 text-text-muted mb-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+              />
+            </svg>
+            <p className="text-sm text-text-muted">
+              Select a card to view statistics
+            </p>
+          </div>
+        </div>
+      ) : columns.length === 0 ? (
+        /* Empty state: no columns */
+        <div className="flex flex-1 items-center justify-center p-4">
+          <div className="text-center">
+            <p className="text-sm text-text-muted">
+              No column statistics available
+            </p>
+          </div>
+        </div>
+      ) : (
+        /* Active card with columns */
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Latency badge */}
+          {metadata?.latency_ms != null && (
+            <div className="flex items-center">
+              <span className="inline-flex items-center rounded-full bg-accent-subtle px-2.5 py-0.5 text-xs font-medium text-accent-primary">
+                {formatLatency(metadata.latency_ms)}
+              </span>
+            </div>
+          )}
+
+          {/* Column statistics */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Columns
+            </h3>
+            {columns.map((col) => (
+              <ColumnStatsCard key={col.name} column={col} />
+            ))}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Mobile Stats Accordion (below canvas on narrow screens)
+// Column Stats Card
 // ---------------------------------------------------------------------------
 
-export function StatsPanelAccordion() {
-  const [expanded, setExpanded] = useState(false);
-  const activeCardId = useSessionStore((s) => s.activeCardId);
-  const cards = useSessionStore((s) => s.cards);
-
-  const activeCard = activeCardId
-    ? cards.find((c) => c.id === activeCardId) ?? null
-    : null;
-
-  const metadata = activeCard?.renderedOutput?.metadata ?? null;
-  const cardTitle = activeCard?.query
-    ? activeCard.query.length > 40
-      ? activeCard.query.slice(0, 40) + '…'
-      : activeCard.query
-    : 'Statistics';
-
+function ColumnStatsCard({ column }: { column: ColumnMeta }) {
   return (
-    <div
-      className="lg:hidden border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
-      aria-label="Stats accordion"
-    >
-      {/* Accordion Header */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left min-h-[44px]"
-        aria-expanded={expanded}
-        aria-controls="stats-accordion-content"
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
-            {cardTitle}
-          </span>
-          {metadata?.latency_ms != null && (
-            <span className="inline-flex shrink-0 items-center rounded bg-blue-100 dark:bg-blue-900 px-2 py-0.5 text-xs font-medium text-blue-800 dark:text-blue-200">
-              {formatLatency(metadata.latency_ms)}
-            </span>
-          )}
-        </div>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className={`h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${
-            expanded ? 'rotate-180' : ''
-          }`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {/* Accordion Content */}
-      {expanded && (
-        <div
-          id="stats-accordion-content"
-          className="border-t border-gray-200 dark:border-gray-700 px-4 py-3 max-h-[50vh] overflow-y-auto"
-        >
-          <StatsContent />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Column Stats Section
-// ---------------------------------------------------------------------------
-
-function ColumnStatsSection({ column }: { column: ColumnMeta }) {
-  return (
-    <div className="rounded border border-gray-200 dark:border-gray-700 p-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+    <div className="rounded-md border border-border-default bg-bg-primary p-3">
+      {/* Column header */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium text-text-primary truncate">
           {column.name}
         </span>
-        <span className="text-xs text-gray-500 dark:text-gray-400 ml-2 shrink-0">
-          {column.type}
-        </span>
+        <ColumnTypeBadge type={column.type} />
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
-        {/* Common stats for all column types */}
+      {/* Stats grid */}
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+        {/* Common stats: row_count and null_percentage for all column types */}
         {column.row_count != null && (
-          <StatEntry label="Row count" value={column.row_count.toLocaleString()} />
+          <StatEntry label="Rows" value={column.row_count.toLocaleString()} />
         )}
         {column.null_percentage != null && (
-          <StatEntry label="Null %" value={`${column.null_percentage.toFixed(2)}%`} />
+          <StatEntry label="Null %" value={`${column.null_percentage.toFixed(1)}%`} />
         )}
 
-        {/* Numeric-specific stats */}
+        {/* Numeric-specific stats (2 decimal places) */}
         {column.type === 'numeric' && (
           <>
             {column.min != null && (
@@ -242,7 +206,7 @@ function ColumnStatsSection({ column }: { column: ColumnMeta }) {
           <StatEntry label="Cardinality" value={column.cardinality.toLocaleString()} />
         )}
 
-        {/* Time-series-specific stats */}
+        {/* Time-series-specific stats (ISO 8601) */}
         {column.type === 'time-series' && (
           <>
             {column.time_range_start != null && (
@@ -258,11 +222,35 @@ function ColumnStatsSection({ column }: { column: ColumnMeta }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Column type badge
+// ---------------------------------------------------------------------------
+
+function ColumnTypeBadge({ type }: { type: ColumnMeta['type'] }) {
+  const styles: Record<string, string> = {
+    numeric: 'bg-accent-subtle text-accent-primary',
+    categorical: 'bg-status-success/10 text-status-success',
+    'time-series': 'bg-status-warning/10 text-status-warning',
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium shrink-0 ml-2 ${styles[type]}`}
+    >
+      {type}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stat entry (label + value pair)
+// ---------------------------------------------------------------------------
+
 function StatEntry({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <dt className="font-medium text-gray-500 dark:text-gray-400">{label}</dt>
-      <dd className="text-gray-700 dark:text-gray-300 truncate" title={value}>
+      <dt className="font-medium text-text-muted">{label}</dt>
+      <dd className="text-text-secondary font-mono truncate" title={value}>
         {value}
       </dd>
     </>

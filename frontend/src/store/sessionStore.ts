@@ -146,6 +146,10 @@ function loadSavedPromptsFromStorage(): SavedPrompt[] {
   }
 }
 
+/**
+ * Persist saved prompts to localStorage.
+ * Returns `true` on success, or throws an error string on quota exceeded.
+ */
 function saveSavedPromptsToStorage(prompts: SavedPrompt[]): void {
   const storage = getStorage();
   if (!storage) return;
@@ -156,11 +160,11 @@ function saveSavedPromptsToStorage(prompts: SavedPrompt[]): void {
       e instanceof DOMException &&
       (e.name === 'QuotaExceededError' || e.code === 22)
     ) {
-      console.warn(
-        '[cbi-store] localStorage quota exceeded when saving prompts.',
+      throw new Error(
+        'Storage quota exceeded. Try deleting older saved prompts to free space.',
       );
     } else {
-      console.warn('[cbi-store] Failed to save prompts to localStorage.', e);
+      throw new Error('Failed to save prompts to localStorage.');
     }
   }
 }
@@ -182,6 +186,7 @@ export const useSessionStore = create<SessionState>()(
       traceabilityPanelVisible: false,
       statsPanelCollapsed: false,
       loading: false,
+      storageError: null,
 
       // ----- Actions -----
 
@@ -383,8 +388,17 @@ export const useSessionStore = create<SessionState>()(
           0,
           MAX_SAVED_PROMPTS,
         );
-        set({ savedPrompts: newSavedPrompts });
-        saveSavedPromptsToStorage(newSavedPrompts);
+
+        try {
+          saveSavedPromptsToStorage(newSavedPrompts);
+          set({ savedPrompts: newSavedPrompts, storageError: null });
+        } catch (e: unknown) {
+          const errorMsg =
+            e instanceof Error
+              ? e.message
+              : 'Unable to save session. Storage may be full — try deleting older saved prompts to free space.';
+          set({ storageError: errorMsg });
+        }
       },
 
       loadSavedPrompt: (id: string) => {
@@ -439,6 +453,10 @@ export const useSessionStore = create<SessionState>()(
           chatHistory: newHistory,
           loading: false,
         });
+      },
+
+      clearStorageError: () => {
+        set({ storageError: null });
       },
     }),
     {

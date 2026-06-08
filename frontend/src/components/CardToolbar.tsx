@@ -5,7 +5,11 @@
  * - Download PNG: exports the chart area as a PNG image
  * - Download CSV: exports the underlying data as a CSV file
  * - Pin/Unpin: toggles card persistence across new queries
- * - Bookmark: toggles card-level bookmark state
+ * - Expand fullscreen: opens the card in a fullscreen modal overlay
+ * - Save Prompt: saves the current session as a saved prompt
+ * - Drag handle: visual handle for drag-to-reorder
+ *
+ * Displays inline error toast on export failure (auto-dismisses after 3s).
  *
  * Requirements: 5.1, 5.2, 5.3, 5.5, 5.6, 5.7
  */
@@ -20,15 +24,21 @@ export interface CardToolbarProps {
   card: CardState;
   /** Optional ref to the chart container element for PNG export */
   chartRef?: React.RefObject<HTMLElement | null>;
+  /** Callback to open the fullscreen modal */
+  onExpandFullscreen?: () => void;
+  /** Ref callback for the drag handle element — provided by DraggableCard via VisualizationCard */
+  dragHandleRef?: (el: HTMLElement | null) => void;
 }
 
 export function CardToolbar({
   card,
   chartRef,
+  onExpandFullscreen,
+  dragHandleRef,
 }: CardToolbarProps) {
   const pinCard = useSessionStore((s) => s.pinCard);
   const unpinCard = useSessionStore((s) => s.unpinCard);
-  const toggleCardBookmark = useSessionStore((s) => s.toggleCardBookmark);
+  const saveSavedPrompt = useSessionStore((s) => s.saveSavedPrompt);
 
   const [exportError, setExportError] = useState<string | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,28 +83,32 @@ export function CardToolbar({
       let rows: string[][] = [];
 
       // Handle nested Chart.js format: { type, data: { labels, datasets }, options }
-      const nestedData = (chartData as any).data;
+      const nestedData = (chartData as Record<string, unknown>).data;
       if (nestedData && typeof nestedData === 'object' && !Array.isArray(nestedData)) {
-        if (Array.isArray(nestedData.labels) && Array.isArray(nestedData.datasets)) {
-          const labels = nestedData.labels as string[];
-          const datasets = nestedData.datasets as Array<{ label?: string; data?: unknown[] }>;
-          headers = ['Label', ...datasets.map((ds: any) => ds.label ?? 'Value')];
+        const nested = nestedData as Record<string, unknown>;
+        if (Array.isArray(nested.labels) && Array.isArray(nested.datasets)) {
+          const labels = nested.labels as string[];
+          const datasets = nested.datasets as Array<{ label?: string; data?: unknown[] }>;
+          headers = ['Label', ...datasets.map((ds) => ds.label ?? 'Value')];
           rows = labels.map((label: string, i: number) => [
             String(label),
-            ...datasets.map((ds: any) => String(ds.data?.[i] ?? '')),
+            ...datasets.map((ds) => String(ds.data?.[i] ?? '')),
           ]);
         }
       }
 
       // Handle top-level labels + datasets
-      if (headers.length === 0 && Array.isArray((chartData as any).labels) && Array.isArray((chartData as any).datasets)) {
-        const labels = (chartData as any).labels as string[];
-        const datasets = (chartData as any).datasets as Array<{ label?: string; data?: unknown[] }>;
-        headers = ['Label', ...datasets.map((ds: any) => ds.label ?? 'Value')];
-        rows = labels.map((label: string, i: number) => [
-          String(label),
-          ...datasets.map((ds: any) => String(ds.data?.[i] ?? '')),
-        ]);
+      if (headers.length === 0) {
+        const topLevel = chartData as Record<string, unknown>;
+        if (Array.isArray(topLevel.labels) && Array.isArray(topLevel.datasets)) {
+          const labels = topLevel.labels as string[];
+          const datasets = topLevel.datasets as Array<{ label?: string; data?: unknown[] }>;
+          headers = ['Label', ...datasets.map((ds) => ds.label ?? 'Value')];
+          rows = labels.map((label: string, i: number) => [
+            String(label),
+            ...datasets.map((ds) => String(ds.data?.[i] ?? '')),
+          ]);
+        }
       }
 
       // Handle array of objects
@@ -108,11 +122,14 @@ export function CardToolbar({
       }
 
       // Handle { columns, rows } table format
-      if (headers.length === 0 && Array.isArray((chartData as any).columns) && Array.isArray((chartData as any).rows)) {
-        headers = (chartData as any).columns;
-        rows = ((chartData as any).rows as unknown[][]).map((row: unknown[]) =>
-          row.map((cell) => String(cell ?? '')),
-        );
+      if (headers.length === 0) {
+        const tableData = chartData as Record<string, unknown>;
+        if (Array.isArray(tableData.columns) && Array.isArray(tableData.rows)) {
+          headers = tableData.columns as string[];
+          rows = (tableData.rows as unknown[][]).map((row: unknown[]) =>
+            row.map((cell) => String(cell ?? '')),
+          );
+        }
       }
 
       if (headers.length === 0) {
@@ -139,22 +156,58 @@ export function CardToolbar({
     [card.id, card.pinned, pinCard, unpinCard],
   );
 
-  // ----- Bookmark -----
-  const handleBookmark = useCallback(
+  // ----- Expand Fullscreen -----
+  const handleExpandFullscreen = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      toggleCardBookmark(card.id);
+      onExpandFullscreen?.();
     },
-    [card.id, toggleCardBookmark],
+    [onExpandFullscreen],
+  );
+
+  // ----- Save Prompt -----
+  const handleSavePrompt = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      // Save the current session as a saved prompt using the card's query as the name
+      const promptName = card.query.slice(0, 100) || 'Untitled';
+      saveSavedPrompt(promptName);
+    },
+    [card.query, saveSavedPrompt],
   );
 
   return (
     <div className="relative">
       <div
-        className="flex items-center gap-1 py-2 border-b border-slate-800/30"
+        className="flex items-center gap-1 py-2 border-b border-border-default"
         role="toolbar"
         aria-label={`Toolbar for card: ${card.query}`}
       >
+        {/* Drag handle (leftmost) */}
+        <button
+          type="button"
+          ref={dragHandleRef as React.Ref<HTMLButtonElement>}
+          className="p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-input transition-colors duration-200 cursor-grab active:cursor-grabbing"
+          title="Drag to reorder"
+          aria-label="Drag to reorder"
+          data-drag-handle
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 8h16M4 16h16"
+            />
+          </svg>
+        </button>
+
         {/* Spacer */}
         <div className="flex-1" />
 
@@ -162,7 +215,7 @@ export function CardToolbar({
         <button
           type="button"
           onClick={handleDownloadPNG}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-all duration-200 backdrop-blur-sm"
+          className="p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
           title="Download PNG"
           aria-label="Download PNG"
         >
@@ -186,7 +239,7 @@ export function CardToolbar({
         <button
           type="button"
           onClick={handleDownloadCSV}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-all duration-200 backdrop-blur-sm"
+          className="p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
           title="Download CSV"
           aria-label="Download CSV"
         >
@@ -210,12 +263,11 @@ export function CardToolbar({
         <button
           type="button"
           onClick={handleTogglePin}
-          className={`p-1.5 rounded-lg transition-all duration-200 backdrop-blur-sm ${
+          className={`p-1.5 rounded-lg transition-colors duration-200 ${
             card.pinned
-              ? 'text-amber-400 hover:bg-amber-500/20'
-              : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/50'
+              ? 'text-amber-500 hover:bg-amber-50'
+              : 'text-text-muted hover:text-amber-500 hover:bg-accent-subtle'
           }`}
-          style={card.pinned ? { filter: 'drop-shadow(0 0 6px rgba(245, 158, 11, 0.5))' } : {}}
           title={card.pinned ? 'Unpin card' : 'Pin to canvas'}
           aria-label={card.pinned ? 'Unpin card' : 'Pin to canvas'}
           aria-pressed={card.pinned}
@@ -236,27 +288,45 @@ export function CardToolbar({
           </svg>
         </button>
 
-        {/* Bookmark */}
+        {/* Expand Fullscreen */}
         <button
           type="button"
-          onClick={handleBookmark}
-          className={`p-1.5 rounded-lg transition-all duration-200 backdrop-blur-sm ${
-            card.bookmarked
-              ? 'text-cyan-400 hover:bg-cyan-500/20'
-              : 'text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50'
-          }`}
-          style={card.bookmarked ? { filter: 'drop-shadow(0 0 6px rgba(6, 182, 212, 0.5))' } : {}}
-          title={card.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-          aria-label={card.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-          aria-pressed={card.bookmarked}
+          onClick={handleExpandFullscreen}
+          className="p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
+          title="Expand fullscreen"
+          aria-label="Expand fullscreen"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             className="h-4 w-4"
-            fill={card.bookmarked ? 'currentColor' : 'none'}
+            fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
-            strokeWidth={card.bookmarked ? 0 : 2}
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5"
+            />
+          </svg>
+        </button>
+
+        {/* Save Prompt */}
+        <button
+          type="button"
+          onClick={handleSavePrompt}
+          className="p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
+          title="Save Prompt"
+          aria-label="Save Prompt"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
           >
             <path
               strokeLinecap="round"
@@ -267,15 +337,12 @@ export function CardToolbar({
         </button>
       </div>
 
-      {/* Export error message - refined alert */}
+      {/* Export error toast - inline on the card */}
       {exportError && (
         <div
-          className="absolute top-full left-0 right-0 mt-2 px-3 py-2 text-xs text-red-300 bg-red-950/60 backdrop-blur-sm border border-red-800/50 rounded-lg shadow-lg"
+          className="absolute top-full left-0 right-0 mt-2 px-3 py-2 text-xs text-status-error bg-red-50 border border-red-200 rounded-lg shadow-card"
           role="alert"
           aria-live="polite"
-          style={{
-            boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
-          }}
         >
           {exportError}
         </div>

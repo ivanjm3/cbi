@@ -113,7 +113,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify relative format for <24h, "YYYY-MM-DD HH:mm" for ≥24h
     - **Validates: Requirements 8.2**
 
-- [-] 5. Application layout shell
+- [x] 5. Application layout shell
   - [x] 5.1 Implement App shell with collapsible sidebar, chat thread, and panel layout
     - Create `frontend/src/App.tsx` with flex layout: Sidebar (260px/48px), MainContent (fluid), TraceabilityPanel (360px, hidden by default)
     - Connect sidebar collapse state to zustand store
@@ -130,21 +130,21 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Dark sidebar background (`bg-sidebar` token)
     - _Requirements: 1.2, 1.3, 1.4, 12.1, 12.2, 12.3, 12.4_
 
-  - [ ] 5.3 Implement Saved Prompts list in Sidebar
+  - [x] 5.3 Implement Saved Prompts list in Sidebar
     - Display up to 50 saved prompts with name + formatted timestamp (relative <24h, absolute otherwise)
     - Implement delete with confirmation prompt
     - Implement selection to load saved prompt (with unsaved-changes warning)
     - _Requirements: 8.2, 8.3, 8.5_
 
-  - [ ] 5.4 Implement Footer Bar component
+  - [x] 5.4 Implement Footer Bar component
     - Create `frontend/src/components/FooterBar.tsx`
     - Persistent clickable bar below ChatThread, above ChatInput
     - Displays "Traceability & Explainability" label
     - Clicking toggles the TraceabilityPanel visibility via store
     - _Requirements: 1.6, 3.1, 3.3_
 
-- [ ] 6. Chat interface components
-  - [ ] 6.1 Implement ChatThread component
+- [x] 6. Chat interface components
+  - [x] 6.1 Implement ChatThread component
     - Create `frontend/src/components/ChatThread.tsx`
     - Vertical scrolling container displaying messages in chronological order
     - User messages as right-aligned bubbles (blue background, white text)
@@ -155,7 +155,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Streaming/typing indicator as left-aligned placeholder while loading
     - _Requirements: 1.5, 1.8, 2.6, 2.7, 2.8, 9.3, 9.4, 9.5_
 
-  - [ ] 6.2 Implement ChatInput component
+  - [x] 6.2 Implement ChatInput component
     - Create `frontend/src/components/ChatInput.tsx` fixed at bottom of viewport
     - Text input with 500-char max, submit button, voice-input icon
     - Prevent submission on empty/whitespace-only input
@@ -176,8 +176,8 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify messages maintain strict chronological order, each user message followed by its system response
     - **Validates: Requirements 10.3**
 
-- [ ] 7. Visualization cards and chart rendering
-  - [ ] 7.1 Implement ChartRenderer component
+- [x] 7. Visualization cards and chart rendering
+  - [x] 7.1 Implement ChartRenderer component
     - Create `frontend/src/components/ChartRenderer.tsx` using Recharts
     - Render BarChart, LineChart, ScatterChart, PieChart based on `selectChartType` result
     - Implement HeatmapChart (custom grid with Recharts)
@@ -187,7 +187,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Handle invalid/missing `chart_data` with error state card
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-  - [ ] 7.2 Implement VisualizationCard component
+  - [x] 7.2 Implement VisualizationCard component
     - Create `frontend/src/components/VisualizationCard.tsx`
     - Compose: CardToolbar + ChartRenderer
     - Card renders inline in chat thread at 50% or 100% width
@@ -196,20 +196,20 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Professional styling with design tokens (subtle shadow, fine border)
     - _Requirements: 2.6, 4.1, 5.5, 11.3_
 
-  - [ ] 7.3 Implement CardToolbar component
+  - [x] 7.3 Implement CardToolbar component
     - Create `frontend/src/components/CardToolbar.tsx`
     - Buttons: Download PNG, Download CSV, Pin/Unpin toggle, Expand fullscreen, Save Prompt, Drag handle
     - Connect PNG/CSV exports to utility functions with inline error toast on failure
     - Toggle pin state via store action
     - _Requirements: 5.1, 5.2, 5.3, 5.5, 5.6, 5.7_
 
-  - [ ] 7.4 Implement FullscreenModal component
+  - [x] 7.4 Implement FullscreenModal component
     - Create `frontend/src/components/FullscreenModal.tsx`
     - Expand card to viewport as modal overlay with close button
     - Close on button click or Escape key
     - _Requirements: 5.4_
 
-  - [ ] 7.5 Implement drag-to-reorder and resize within chat thread
+  - [x] 7.5 Implement drag-to-reorder and resize within chat thread
     - Set up react-dnd DndProvider with HTML5Backend
     - Enable drag-to-reorder cards via drag handle within the chat thread
     - Visual drop indicator showing valid placement positions
@@ -235,8 +235,8 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
 - [ ] 8. Checkpoint - UI components complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 9. Traceability Panel and Stats Panel
-  - [ ] 9.1 Implement Traceability Panel component
+- [x] 9. Traceability Panel and Stats Panel
+  - [x] 9.1 Implement Traceability Panel component
     - Create `frontend/src/components/TraceabilityPanel.tsx` as a right sidebar (360px)
     - Three sections: paraphrased query rewrite, structured intent JSON (formatted), API call summary
     - Update content when active card changes
@@ -245,7 +245,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Slide in from right edge, push or overlay layout
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-  - [ ] 9.2 Implement Stats Panel component
+  - [x] 9.2 Implement Stats Panel component
     - Create `frontend/src/components/StatsPanel.tsx` as a collapsible right rail
     - Display per-column stats from active card's `metadata.columns`
     - Render row_count + null_percentage (1 decimal) for all columns
@@ -262,8 +262,8 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify correct stat fields rendered per column type
     - **Validates: Requirements 7.2, 7.3, 7.4, 7.5**
 
-- [ ] 10. Saved Prompts and error handling
-  - [ ] 10.1 Implement Saved Prompt save/load/delete logic
+- [x] 10. Saved Prompts and error handling
+  - [x] 10.1 Implement Saved Prompt save/load/delete logic
     - Wire "Save session" flow in store: prompt for name (100 char max), serialize full state (chat thread, cards, pins, data, stats) to `SavedPrompt`
     - Persist saved prompts to localStorage (`cbi-saved-prompts` key, max 50)
     - Implement `loadSavedPrompt` with unsaved-changes confirmation, restore without API calls
@@ -271,7 +271,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Handle localStorage quota exceeded with user-facing error message
     - _Requirements: 8.1, 8.3, 8.4, 8.5, 8.6_
 
-  - [ ] 10.2 Implement error message rendering and retry in chat thread
+  - [x] 10.2 Implement error message rendering and retry in chat thread
     - Create `frontend/src/components/ErrorMessage.tsx`
     - Display 422 errors with `error_message` from response as left-aligned in chat thread; preserve prompt in input
     - Display 503/504 errors with service unavailability message and retry button
@@ -285,8 +285,8 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Verify serialize then deserialize produces equivalent state
     - **Validates: Requirements 8.1**
 
-- [ ] 11. Integration wiring and final assembly
-  - [ ] 11.1 Wire all components together in App
+- [x] 11. Integration wiring and final assembly
+  - [x] 11.1 Wire all components together in App
     - Connect ChatInput submit → store.submitQuery → API → append system response with card to ChatThread
     - Connect Footer Bar → toggle TraceabilityPanel
     - Connect card click/focus → activeCardId → StatsPanel + TraceabilityPanel update

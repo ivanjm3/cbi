@@ -30,6 +30,7 @@ import type { ChartType } from '../utils/chartSelector';
 
 interface ChartRendererProps {
   renderedOutput: RenderedOutput;
+  userRequestedChartType?: import('../types').ChartType | null;
 }
 
 // Default color palette for charts
@@ -367,7 +368,7 @@ function RenderTextBlock({ content, description }: { content: string; descriptio
       <div className="prose prose-sm dark:prose-invert max-w-none">
         <p className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">{content}</p>
       </div>
-      {description && (
+      {description && description !== content && (
         <p className="text-xs text-gray-500 dark:text-gray-400 italic">{description}</p>
       )}
     </div>
@@ -404,8 +405,8 @@ function RenderError({ message }: { message: string }) {
 // Main ChartRenderer
 // ---------------------------------------------------------------------------
 
-export function ChartRenderer({ renderedOutput }: ChartRendererProps) {
-  const chartType: ChartType = selectChartType(renderedOutput);
+export function ChartRenderer({ renderedOutput, userRequestedChartType }: ChartRendererProps) {
+  const chartType: ChartType = selectChartType(renderedOutput, userRequestedChartType);
 
   // Handle text-only output
   if (chartType === 'text') {

@@ -151,6 +151,9 @@ export interface SessionState {
   statsPanelCollapsed: boolean;
   loading: boolean;
 
+  // Storage error (user-facing message for quota exceeded, etc.)
+  storageError: string | null;
+
   // Actions
   submitQuery: (queryText: string) => Promise<void>;
   setActiveCard: (id: string | null) => void;
@@ -165,6 +168,7 @@ export interface SessionState {
   loadSavedPrompt: (id: string) => void;
   deleteSavedPrompt: (id: string) => void;
   startNewChat: () => void;
+  clearStorageError: () => void;
 }
 
 // ---------------------------------------------------------------------------
