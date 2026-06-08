@@ -4,60 +4,52 @@
  */
 
 /**
- * Formats a latency value in milliseconds as a badge string.
- * @param n - Non-negative integer representing milliseconds
- * @returns Formatted string like "↯ 234ms"
- *
- * Validates: Requirements 7.6
+ * Formats a latency value as a badge string.
+ * Property 8: For any non-negative integer N, produces `↯ {N}ms`.
  */
 export function formatLatency(n: number): string {
   return `↯ ${n}ms`;
 }
 
 /**
- * Formats a timestamp as relative time if less than 24 hours ago,
- * or as "YYYY-MM-DD HH:mm" for older timestamps.
- * @param date - The date to format
- * @param now - Optional reference "now" time for testing (defaults to current time)
- * @returns Formatted time string
+ * Formats a timestamp as either a relative time string (if <24h ago)
+ * or an absolute "YYYY-MM-DD HH:mm" string (if >=24h ago).
+ * Property 10: Timestamp display formatting.
  *
- * Validates: Requirements 8.2
+ * @param date - The timestamp to format (Date object or milliseconds since epoch)
+ * @param now - Optional reference time for testing (defaults to current time)
  */
-export function formatTimestamp(date: Date, now: Date = new Date()): string {
-  const diffMs = now.getTime() - date.getTime();
-  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+export function formatTimestamp(date: Date | number, now?: Date | number): string {
+  const timestamp = date instanceof Date ? date.getTime() : date;
+  const reference = now instanceof Date ? now.getTime() : (now ?? Date.now());
+  const elapsedMs = reference - timestamp;
 
-  if (diffMs < TWENTY_FOUR_HOURS_MS && diffMs >= 0) {
-    return formatRelativeTime(diffMs);
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+  if (elapsedMs < TWENTY_FOUR_HOURS) {
+    return formatRelative(elapsedMs);
   }
 
-  return formatAbsoluteTime(date);
+  return formatAbsolute(new Date(timestamp));
 }
 
-/**
- * Formats a millisecond difference as a human-readable relative time string.
- */
-function formatRelativeTime(diffMs: number): string {
-  const seconds = Math.floor(diffMs / 1000);
+function formatRelative(elapsedMs: number): string {
+  const seconds = Math.floor(elapsedMs / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
 
-  if (hours >= 1) {
-    return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  if (seconds < 60) {
+    return 'just now';
   }
-  if (minutes >= 1) {
+
+  if (minutes < 60) {
     return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
   }
-  if (seconds >= 1) {
-    return seconds === 1 ? '1 second ago' : `${seconds} seconds ago`;
-  }
-  return 'just now';
+
+  return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
 }
 
-/**
- * Formats a date as "YYYY-MM-DD HH:mm".
- */
-function formatAbsoluteTime(date: Date): string {
+function formatAbsolute(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

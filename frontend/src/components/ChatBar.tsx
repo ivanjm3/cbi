@@ -1,57 +1,51 @@
-import { useState, useRef, useCallback, useEffect, type FormEvent, type KeyboardEvent } from 'react';
+/**
+ * ChatBar component — fixed at the bottom of the center column.
+ *
+ * Features:
+ * - Text input (500-char max) with placeholder "Ask a question about your data..."
+ * - Submit button (Enter key or click)
+ * - Voice-input icon (Web Speech API, hidden if unsupported)
+ * - Prevents submission on empty/whitespace-only input
+ * - Disables input and button while request is in flight
+ *
+ * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+ */
+
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSessionStore } from '../store/sessionStore';
 
-const MAX_INPUT_LENGTH = 500;
-
-/**
- * Check if the Web Speech API (SpeechRecognition) is available in the browser.
- */
+// Check if Web Speech API is available
 function isSpeechRecognitionSupported(): boolean {
-  if (typeof window === 'undefined') return false;
   return !!(
-    (window as unknown as Record<string, unknown>).SpeechRecognition ||
-    (window as unknown as Record<string, unknown>).webkitSpeechRecognition
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition
   );
-}
-
-/**
- * Create a SpeechRecognition instance (cross-browser).
- */
-function createSpeechRecognition(): SpeechRecognition | null {
-  if (typeof window === 'undefined') return null;
-  const SpeechRecognitionCtor =
-    (window as unknown as Record<string, typeof SpeechRecognition>).SpeechRecognition ||
-    (window as unknown as Record<string, typeof SpeechRecognition>).webkitSpeechRecognition;
-  if (!SpeechRecognitionCtor) return null;
-  return new SpeechRecognitionCtor();
 }
 
 export function ChatBar() {
   const [input, setInput] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [listening, setListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loading = useSessionStore((s) => s.loading);
   const submitQuery = useSessionStore((s) => s.submitQuery);
 
-  const speechSupported = isSpeechRecognitionSupported();
+  // Check speech support on mount
+  useEffect(() => {
+    setSpeechSupported(isSpeechRecognitionSupported());
+  }, []);
 
-  const canSubmit = input.trim().length > 0 && !loading;
-
-  const handleSubmit = useCallback(
-    async (e?: FormEvent) => {
-      e?.preventDefault();
-      if (!canSubmit) return;
-      const queryText = input.trim();
-      setInput('');
-      await submitQuery(queryText);
-    },
-    [canSubmit, input, submitQuery],
-  );
+  const handleSubmit = useCallback(() => {
+    const trimmed = input.trim();
+    if (!trimmed || loading) return;
+    submitQuery(trimmed);
+    setInput('');
+  }, [input, loading, submitQuery]);
 
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
@@ -60,115 +54,122 @@ export function ChatBar() {
     [handleSubmit],
   );
 
-  const startVoiceInput = useCallback(() => {
-    if (!speechSupported || isListening) return;
+  const handleVoiceClick = useCallback(() => {
+    if (listening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setListening(false);
+      return;
+    }
 
-    const recognition = createSpeechRecognition();
-    if (!recognition) return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
 
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: any) => {
       const transcript = event.results[0]?.[0]?.transcript ?? '';
       setInput((prev) => {
         const combined = prev + transcript;
-        return combined.slice(0, MAX_INPUT_LENGTH);
+        return combined.slice(0, 500);
       });
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
+      setListening(false);
     };
 
     recognition.onerror = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
+      setListening(false);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
     };
 
     recognitionRef.current = recognition;
-    setIsListening(true);
     recognition.start();
-  }, [speechSupported, isListening]);
+    setListening(true);
+  }, [listening]);
 
-  // Clean up recognition on unmount
+  // Cleanup recognition on unmount
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
+        try {
+          recognitionRef.current.abort();
+        } catch {
+          // Ignore abort errors
+        }
       }
     };
   }, []);
 
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="fixed bottom-0 left-0 right-0 z-50 flex items-center gap-2 border-t border-gray-200 bg-white px-4 py-3 shadow-lg"
-      aria-label="Chat input"
-    >
-      <input
-        ref={inputRef}
-        type="text"
-        value={input}
-        onChange={(e) => setInput(e.target.value.slice(0, MAX_INPUT_LENGTH))}
-        onKeyDown={handleKeyDown}
-        disabled={loading}
-        maxLength={MAX_INPUT_LENGTH}
-        placeholder="Ask a question about your data..."
-        className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-60"
-        aria-label="Query input"
-      />
+  const isSubmitDisabled = loading || !input.trim();
 
-      {speechSupported && (
+  return (
+    <div
+      className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3"
+      aria-label="Chat bar"
+    >
+      <div className="flex items-center gap-2">
+        {/* Voice input button — hidden if unsupported */}
+        {speechSupported && (
+          <button
+            type="button"
+            onClick={handleVoiceClick}
+            disabled={loading}
+            className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors ${
+              listening
+                ? 'bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300'
+                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+            aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+              />
+            </svg>
+          </button>
+        )}
+
+        {/* Text input */}
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value.slice(0, 500))}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask a question about your data..."
+          maxLength={500}
+          disabled={loading}
+          className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Query input"
+        />
+
+        {/* Submit button */}
         <button
           type="button"
-          onClick={startVoiceInput}
-          disabled={loading || isListening}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
-          aria-label={isListening ? 'Listening...' : 'Voice input'}
-          title={isListening ? 'Listening...' : 'Voice input'}
+          onClick={handleSubmit}
+          disabled={isSubmitDisabled}
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Submit query"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`h-4 w-4 ${isListening ? 'text-red-500 animate-pulse' : ''}`}
-          >
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
+          Send
         </button>
-      )}
-
-      <button
-        type="submit"
-        disabled={!canSubmit}
-        className="flex h-9 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300 disabled:opacity-60"
-        aria-label="Submit query"
-      >
-        {loading ? (
-          <svg
-            className="h-4 w-4 animate-spin"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-          </svg>
-        ) : (
-          'Send'
-        )}
-      </button>
-    </form>
+      </div>
+    </div>
   );
 }

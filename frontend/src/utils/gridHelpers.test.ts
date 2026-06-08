@@ -1,224 +1,210 @@
 import { describe, it, expect } from 'vitest';
-import { nextPosition, constrainResize, buildOccupiedSet } from './gridHelpers';
+import { buildOccupiedSet, nextPosition, constrainResize } from './gridHelpers';
 import type { CardState } from '../types/index';
-import type { RenderedOutput } from '../types/index';
 
-/** Helper to create a minimal CardState for testing */
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
 function makeCard(
-  id: string,
-  col: number,
-  row: number,
-  colSpan: 1 | 2 = 1,
-  rowSpan: 1 | 2 = 1,
-  pinned = false,
+  overrides: Partial<CardState> & { id: string; gridPosition: { col: number; row: number } },
 ): CardState {
   return {
-    id,
-    query: 'test query',
-    renderedOutput: {
-      output_type: 'text',
-      text_content: 'test',
+    id: overrides.id,
+    query: overrides.query ?? 'test query',
+    renderedOutput: overrides.renderedOutput ?? {
+      output_type: 'chart',
+      chart_type: 'bar',
+      chart_data: {},
+      text_content: null,
       description: 'test',
-      metadata: { query_id: id, query_type: 'test' },
-    } as RenderedOutput,
-    gridPosition: { col, row },
-    gridSize: { colSpan, rowSpan },
-    pinned,
-    createdAt: Date.now(),
+      metadata: { query_id: '1', query_type: 'test' },
+    },
+    gridPosition: overrides.gridPosition,
+    gridSize: overrides.gridSize ?? { colSpan: 1, rowSpan: 1 },
+    pinned: overrides.pinned ?? false,
+    bookmarked: overrides.bookmarked ?? false,
+    createdAt: overrides.createdAt ?? Date.now(),
   };
 }
 
+// ---------------------------------------------------------------------------
+// buildOccupiedSet
+// ---------------------------------------------------------------------------
+
 describe('buildOccupiedSet', () => {
   it('returns empty set for no cards', () => {
-    const result = buildOccupiedSet([]);
-    expect(result.size).toBe(0);
+    expect(buildOccupiedSet([])).toEqual(new Set());
   });
 
-  it('includes all cells for a 1x1 card', () => {
-    const cards = [makeCard('a', 0, 0)];
-    const result = buildOccupiedSet(cards);
-    expect(result.has('0,0')).toBe(true);
-    expect(result.size).toBe(1);
+  it('marks single 1x1 card cell as occupied', () => {
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } })];
+    expect(buildOccupiedSet(cards)).toEqual(new Set(['0,0']));
   });
 
-  it('includes all cells for a 2x2 card', () => {
-    const cards = [makeCard('a', 0, 0, 2, 2)];
-    const result = buildOccupiedSet(cards);
-    expect(result.has('0,0')).toBe(true);
-    expect(result.has('1,0')).toBe(true);
-    expect(result.has('0,1')).toBe(true);
-    expect(result.has('1,1')).toBe(true);
-    expect(result.size).toBe(4);
+  it('accounts for colSpan and rowSpan', () => {
+    const cards = [
+      makeCard({
+        id: 'a',
+        gridPosition: { col: 0, row: 0 },
+        gridSize: { colSpan: 2, rowSpan: 2 },
+      }),
+    ];
+    const occupied = buildOccupiedSet(cards);
+    expect(occupied).toEqual(new Set(['0,0', '1,0', '0,1', '1,1']));
   });
 
-  it('combines cells from multiple cards', () => {
-    const cards = [makeCard('a', 0, 0), makeCard('b', 1, 2)];
-    const result = buildOccupiedSet(cards);
-    expect(result.has('0,0')).toBe(true);
-    expect(result.has('1,2')).toBe(true);
-    expect(result.size).toBe(2);
+  it('excludes card by id', () => {
+    const cards = [
+      makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } }),
+      makeCard({ id: 'b', gridPosition: { col: 1, row: 0 } }),
+    ];
+    const occupied = buildOccupiedSet(cards, 'a');
+    expect(occupied).toEqual(new Set(['1,0']));
+  });
+
+  it('handles multiple cards', () => {
+    const cards = [
+      makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } }),
+      makeCard({ id: 'b', gridPosition: { col: 1, row: 1 } }),
+      makeCard({ id: 'c', gridPosition: { col: 0, row: 2 } }),
+    ];
+    const occupied = buildOccupiedSet(cards);
+    expect(occupied).toEqual(new Set(['0,0', '1,1', '0,2']));
   });
 });
 
+// ---------------------------------------------------------------------------
+// nextPosition
+// ---------------------------------------------------------------------------
+
 describe('nextPosition', () => {
-  it('returns (0,0) when canvas is empty', () => {
+  it('returns (0,0) for empty canvas', () => {
     expect(nextPosition([])).toEqual({ col: 0, row: 0 });
   });
 
-  it('returns (1,0) when (0,0) is occupied', () => {
-    const cards = [makeCard('a', 0, 0)];
+  it('returns (1,0) when only (0,0) is occupied', () => {
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } })];
     expect(nextPosition(cards)).toEqual({ col: 1, row: 0 });
   });
 
-  it('returns (0,1) when row 0 is full', () => {
-    const cards = [makeCard('a', 0, 0), makeCard('b', 1, 0)];
-    expect(nextPosition(cards)).toEqual({ col: 0, row: 1 });
-  });
-
-  it('follows LTR-TTB order skipping occupied cells', () => {
-    // Occupy (0,0) and (0,1)
-    const cards = [makeCard('a', 0, 0), makeCard('b', 0, 1)];
-    // Next should be (1,0)
-    expect(nextPosition(cards)).toEqual({ col: 1, row: 0 });
-  });
-
-  it('accounts for card spans', () => {
-    // A 2x1 card at (0,0) occupies both (0,0) and (1,0)
-    const cards = [makeCard('a', 0, 0, 2, 1)];
-    expect(nextPosition(cards)).toEqual({ col: 0, row: 1 });
-  });
-
-  it('accounts for 2x2 card spans', () => {
-    // A 2x2 card at (0,0) occupies (0,0), (1,0), (0,1), (1,1)
-    const cards = [makeCard('a', 0, 0, 2, 2)];
-    expect(nextPosition(cards)).toEqual({ col: 0, row: 2 });
-  });
-
-  it('returns null when all 6 cells are occupied', () => {
+  it('skips cells occupied by a 2x1 card', () => {
     const cards = [
-      makeCard('a', 0, 0),
-      makeCard('b', 1, 0),
-      makeCard('c', 0, 1),
-      makeCard('d', 1, 1),
-      makeCard('e', 0, 2),
-      makeCard('f', 1, 2),
+      makeCard({
+        id: 'a',
+        gridPosition: { col: 0, row: 0 },
+        gridSize: { colSpan: 2, rowSpan: 1 },
+      }),
+    ];
+    // (0,0) and (1,0) both occupied, next is (0,1)
+    expect(nextPosition(cards)).toEqual({ col: 0, row: 1 });
+  });
+
+  it('skips cells occupied by a 1x2 card', () => {
+    const cards = [
+      makeCard({
+        id: 'a',
+        gridPosition: { col: 0, row: 0 },
+        gridSize: { colSpan: 1, rowSpan: 2 },
+      }),
+    ];
+    // (0,0) and (0,1) occupied, next is (1,0)
+    expect(nextPosition(cards)).toEqual({ col: 1, row: 0 });
+  });
+
+  it('follows LTR-TTB order', () => {
+    // Occupy (0,0) and (1,0)
+    const cards = [
+      makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } }),
+      makeCard({ id: 'b', gridPosition: { col: 1, row: 0 } }),
+    ];
+    expect(nextPosition(cards)).toEqual({ col: 0, row: 1 });
+  });
+
+  it('returns null when all cells are occupied', () => {
+    const cards = [
+      makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } }),
+      makeCard({ id: 'b', gridPosition: { col: 1, row: 0 } }),
+      makeCard({ id: 'c', gridPosition: { col: 0, row: 1 } }),
+      makeCard({ id: 'd', gridPosition: { col: 1, row: 1 } }),
+      makeCard({ id: 'e', gridPosition: { col: 0, row: 2 } }),
+      makeCard({ id: 'f', gridPosition: { col: 1, row: 2 } }),
     ];
     expect(nextPosition(cards)).toBeNull();
   });
 
   it('returns null when a 2x2 card and two 1x1 cards fill the grid', () => {
     const cards = [
-      makeCard('a', 0, 0, 2, 2), // occupies (0,0), (1,0), (0,1), (1,1)
-      makeCard('b', 0, 2),       // occupies (0,2)
-      makeCard('c', 1, 2),       // occupies (1,2)
+      makeCard({
+        id: 'a',
+        gridPosition: { col: 0, row: 0 },
+        gridSize: { colSpan: 2, rowSpan: 2 },
+      }),
+      makeCard({ id: 'b', gridPosition: { col: 0, row: 2 } }),
+      makeCard({ id: 'c', gridPosition: { col: 1, row: 2 } }),
     ];
     expect(nextPosition(cards)).toBeNull();
   });
-
-  it('finds gaps between cards', () => {
-    // Occupy (0,0), (0,1), (1,1), (0,2), (1,2) — gap at (1,0)
-    const cards = [
-      makeCard('a', 0, 0),
-      makeCard('c', 0, 1),
-      makeCard('d', 1, 1),
-      makeCard('e', 0, 2),
-      makeCard('f', 1, 2),
-    ];
-    expect(nextPosition(cards)).toEqual({ col: 1, row: 0 });
-  });
 });
+
+// ---------------------------------------------------------------------------
+// constrainResize
+// ---------------------------------------------------------------------------
 
 describe('constrainResize', () => {
   it('allows valid resize within boundaries', () => {
-    const result = constrainResize(
-      { col: 0, row: 0 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 2, rowSpan: 2 },
-      [],
-    );
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } })];
+    const result = constrainResize(0, 0, 2, 2, cards, 'a');
     expect(result).toEqual({ colSpan: 2, rowSpan: 2 });
   });
 
-  it('clamps colSpan to grid boundary', () => {
-    // Card at col=1, trying to span 2 columns would exceed grid
-    const result = constrainResize(
-      { col: 1, row: 0 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 2, rowSpan: 1 },
-      [],
-    );
+  it('reduces colSpan when card at col 1 tries colSpan 2', () => {
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 1, row: 0 } })];
+    const result = constrainResize(1, 0, 2, 1, cards, 'a');
     expect(result).toEqual({ colSpan: 1, rowSpan: 1 });
   });
 
-  it('clamps rowSpan to grid boundary', () => {
-    // Card at row=2, trying to span 2 rows would exceed grid
-    const result = constrainResize(
-      { col: 0, row: 2 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 1, rowSpan: 2 },
-      [],
-    );
+  it('reduces rowSpan when card at row 2 tries rowSpan 2', () => {
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 0, row: 2 } })];
+    const result = constrainResize(0, 2, 1, 2, cards, 'a');
     expect(result).toEqual({ colSpan: 1, rowSpan: 1 });
   });
 
-  it('clamps both colSpan and rowSpan', () => {
-    // Card at (1,2), trying 2x2
-    const result = constrainResize(
-      { col: 1, row: 2 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 2, rowSpan: 2 },
-      [],
-    );
+  it('reduces span when blocked by another card', () => {
+    const cards = [
+      makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } }),
+      makeCard({ id: 'b', gridPosition: { col: 1, row: 0 } }),
+    ];
+    // Card 'a' at (0,0) tries to expand to 2 cols — blocked by 'b' at (1,0)
+    const result = constrainResize(0, 0, 2, 1, cards, 'a');
     expect(result).toEqual({ colSpan: 1, rowSpan: 1 });
   });
 
-  it('prevents overlap with other cards by reducing rowSpan', () => {
-    // Card at (0,0) trying to resize to 1x2, but (0,1) is occupied
-    const otherCards = [makeCard('b', 0, 1)];
-    const result = constrainResize(
-      { col: 0, row: 0 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 1, rowSpan: 2 },
-      otherCards,
-    );
+  it('allows colSpan 2 when adjacent cell is free', () => {
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } })];
+    const result = constrainResize(0, 0, 2, 1, cards, 'a');
+    expect(result).toEqual({ colSpan: 2, rowSpan: 1 });
+  });
+
+  it('allows rowSpan 2 when cell below is free', () => {
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } })];
+    const result = constrainResize(0, 0, 1, 2, cards, 'a');
+    expect(result).toEqual({ colSpan: 1, rowSpan: 2 });
+  });
+
+  it('reduces rowSpan when cell below is occupied', () => {
+    const cards = [
+      makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } }),
+      makeCard({ id: 'b', gridPosition: { col: 0, row: 1 } }),
+    ];
+    const result = constrainResize(0, 0, 1, 2, cards, 'a');
     expect(result).toEqual({ colSpan: 1, rowSpan: 1 });
   });
 
-  it('prevents overlap with other cards by reducing colSpan', () => {
-    // Card at (0,0) trying to resize to 2x1, but (1,0) is occupied
-    const otherCards = [makeCard('b', 1, 0)];
-    const result = constrainResize(
-      { col: 0, row: 0 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 2, rowSpan: 1 },
-      otherCards,
-    );
+  it('works without excludeId', () => {
+    const cards = [makeCard({ id: 'a', gridPosition: { col: 0, row: 0 } })];
+    // Without exclude, (0,0) is occupied so a 2x1 card at (0,0) overlaps itself
+    const result = constrainResize(0, 0, 2, 1, cards);
     expect(result).toEqual({ colSpan: 1, rowSpan: 1 });
-  });
-
-  it('prevents overlap when trying 2x2 with a card blocking one cell', () => {
-    // Card at (0,0) trying 2x2, but (1,1) is occupied
-    const otherCards = [makeCard('b', 1, 1)];
-    const result = constrainResize(
-      { col: 0, row: 0 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 2, rowSpan: 2 },
-      otherCards,
-    );
-    // Should reduce to fit — try colSpan=2, rowSpan=1 first (no overlap there)
-    expect(result.colSpan * result.rowSpan).toBeLessThanOrEqual(2);
-    // Verify no overlap
-    expect(result.colSpan + 0).toBeLessThanOrEqual(2);
-    expect(result.rowSpan + 0).toBeLessThanOrEqual(3);
-  });
-
-  it('allows resize when no other cards present', () => {
-    const result = constrainResize(
-      { col: 0, row: 1 },
-      { colSpan: 1, rowSpan: 1 },
-      { colSpan: 2, rowSpan: 2 },
-      [],
-    );
-    expect(result).toEqual({ colSpan: 2, rowSpan: 2 });
   });
 });

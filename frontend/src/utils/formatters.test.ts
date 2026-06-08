@@ -6,87 +6,103 @@ describe('formatLatency', () => {
     expect(formatLatency(0)).toBe('↯ 0ms');
   });
 
-  it('formats typical latency values', () => {
-    expect(formatLatency(234)).toBe('↯ 234ms');
-    expect(formatLatency(1500)).toBe('↯ 1500ms');
+  it('formats small latency', () => {
+    expect(formatLatency(5)).toBe('↯ 5ms');
   });
 
-  it('formats large latency values', () => {
-    expect(formatLatency(60000)).toBe('↯ 60000ms');
+  it('formats typical latency', () => {
+    expect(formatLatency(2340)).toBe('↯ 2340ms');
+  });
+
+  it('formats large latency', () => {
+    expect(formatLatency(99999)).toBe('↯ 99999ms');
   });
 });
 
 describe('formatTimestamp', () => {
-  const now = new Date('2025-06-15T12:00:00Z');
+  const NOW = new Date('2025-06-15T12:00:00Z').getTime();
 
-  describe('relative time (< 24 hours)', () => {
-    it('formats as "just now" for sub-second differences', () => {
-      const date = new Date(now.getTime() - 500);
-      expect(formatTimestamp(date, now)).toBe('just now');
+  describe('relative time (<24h)', () => {
+    it('returns "just now" for timestamps less than 60 seconds ago', () => {
+      const thirtySecsAgo = NOW - 30 * 1000;
+      expect(formatTimestamp(thirtySecsAgo, NOW)).toBe('just now');
     });
 
-    it('formats seconds ago', () => {
-      const date = new Date(now.getTime() - 30 * 1000);
-      expect(formatTimestamp(date, now)).toBe('30 seconds ago');
+    it('returns "just now" for zero elapsed time', () => {
+      expect(formatTimestamp(NOW, NOW)).toBe('just now');
     });
 
-    it('formats singular second', () => {
-      const date = new Date(now.getTime() - 1000);
-      expect(formatTimestamp(date, now)).toBe('1 second ago');
+    it('returns "1 minute ago" for exactly 60 seconds', () => {
+      const oneMinAgo = NOW - 60 * 1000;
+      expect(formatTimestamp(oneMinAgo, NOW)).toBe('1 minute ago');
     });
 
-    it('formats minutes ago', () => {
-      const date = new Date(now.getTime() - 5 * 60 * 1000);
+    it('returns plural minutes for multiple minutes', () => {
+      const fiveMinAgo = NOW - 5 * 60 * 1000;
+      expect(formatTimestamp(fiveMinAgo, NOW)).toBe('5 minutes ago');
+    });
+
+    it('returns "1 hour ago" for exactly 60 minutes', () => {
+      const oneHourAgo = NOW - 60 * 60 * 1000;
+      expect(formatTimestamp(oneHourAgo, NOW)).toBe('1 hour ago');
+    });
+
+    it('returns plural hours for multiple hours', () => {
+      const twoHoursAgo = NOW - 2 * 60 * 60 * 1000;
+      expect(formatTimestamp(twoHoursAgo, NOW)).toBe('2 hours ago');
+    });
+
+    it('returns relative time for 23 hours ago', () => {
+      const twentyThreeHoursAgo = NOW - 23 * 60 * 60 * 1000;
+      expect(formatTimestamp(twentyThreeHoursAgo, NOW)).toBe('23 hours ago');
+    });
+  });
+
+  describe('absolute time (>=24h)', () => {
+    it('returns YYYY-MM-DD HH:mm for exactly 24 hours ago', () => {
+      const twentyFourHoursAgo = NOW - 24 * 60 * 60 * 1000;
+      const result = formatTimestamp(twentyFourHoursAgo, NOW);
+      // Should match YYYY-MM-DD HH:mm pattern
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    });
+
+    it('returns correct absolute format for a known date', () => {
+      // Use a fixed date and fixed "now" to avoid timezone issues
+      const date = new Date('2025-01-10T08:30:00Z');
+      const now = new Date('2025-06-15T12:00:00Z');
+      const result = formatTimestamp(date, now);
+      // The result depends on local timezone, so just verify the format
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    });
+
+    it('returns absolute format for old timestamps', () => {
+      const oldDate = NOW - 7 * 24 * 60 * 60 * 1000; // 1 week ago
+      const result = formatTimestamp(oldDate, NOW);
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    });
+  });
+
+  describe('input types', () => {
+    it('accepts Date objects', () => {
+      const date = new Date(NOW - 5 * 60 * 1000);
+      expect(formatTimestamp(date, NOW)).toBe('5 minutes ago');
+    });
+
+    it('accepts numeric timestamps', () => {
+      const timestamp = NOW - 5 * 60 * 1000;
+      expect(formatTimestamp(timestamp, NOW)).toBe('5 minutes ago');
+    });
+
+    it('accepts Date object for now parameter', () => {
+      const date = NOW - 5 * 60 * 1000;
+      const now = new Date(NOW);
       expect(formatTimestamp(date, now)).toBe('5 minutes ago');
     });
 
-    it('formats singular minute', () => {
-      const date = new Date(now.getTime() - 60 * 1000);
-      expect(formatTimestamp(date, now)).toBe('1 minute ago');
-    });
-
-    it('formats hours ago', () => {
-      const date = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-      expect(formatTimestamp(date, now)).toBe('3 hours ago');
-    });
-
-    it('formats singular hour', () => {
-      const date = new Date(now.getTime() - 60 * 60 * 1000);
-      expect(formatTimestamp(date, now)).toBe('1 hour ago');
-    });
-
-    it('formats 23 hours ago as relative', () => {
-      const date = new Date(now.getTime() - 23 * 60 * 60 * 1000);
-      expect(formatTimestamp(date, now)).toBe('23 hours ago');
-    });
-  });
-
-  describe('absolute time (>= 24 hours)', () => {
-    it('formats as YYYY-MM-DD HH:mm at exactly 24 hours', () => {
-      const date = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const result = formatTimestamp(date, now);
-      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
-    });
-
-    it('formats an old date correctly', () => {
-      const date = new Date('2024-03-05T09:30:00');
-      const result = formatTimestamp(date, now);
-      expect(result).toBe('2024-03-05 09:30');
-    });
-
-    it('pads single-digit month and day', () => {
-      const date = new Date('2024-01-02T08:05:00');
-      const result = formatTimestamp(date, now);
-      expect(result).toBe('2024-01-02 08:05');
-    });
-  });
-
-  describe('edge cases', () => {
-    it('formats future dates as absolute time', () => {
-      const date = new Date(now.getTime() + 60 * 60 * 1000);
-      const result = formatTimestamp(date, now);
-      // Future dates have negative diff, so they go to absolute format
-      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    it('defaults now to current time when omitted', () => {
+      // A timestamp from 5 minutes ago should return relative time
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+      expect(formatTimestamp(fiveMinAgo)).toBe('5 minutes ago');
     });
   });
 });

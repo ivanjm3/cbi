@@ -1,3 +1,14 @@
+/**
+ * Core TypeScript interfaces for the Conversational BI Frontend.
+ *
+ * These mirror the backend response contract and define the client-side
+ * state shapes used throughout the application.
+ */
+
+// ---------------------------------------------------------------------------
+// Backend response types
+// ---------------------------------------------------------------------------
+
 /** Backend response shape (mirrors RenderedOutput pydantic model) */
 export interface RenderedOutput {
   output_type: 'chart' | 'text';
@@ -8,6 +19,7 @@ export interface RenderedOutput {
   metadata: MetaPayload;
 }
 
+/** Metadata returned alongside every query response */
 export interface MetaPayload {
   query_id: string;
   query_type: string;
@@ -18,6 +30,7 @@ export interface MetaPayload {
   data_sources?: string[];
 }
 
+/** Per-column statistics provided in MetaPayload */
 export interface ColumnMeta {
   name: string;
   type: 'numeric' | 'categorical' | 'time-series';
@@ -36,7 +49,11 @@ export interface ColumnMeta {
   time_range_end?: string;
 }
 
-/** Canvas card state */
+// ---------------------------------------------------------------------------
+// Canvas and card state
+// ---------------------------------------------------------------------------
+
+/** State of a single visualization card on the canvas */
 export interface CardState {
   id: string;
   query: string;
@@ -44,10 +61,63 @@ export interface CardState {
   gridPosition: { col: number; row: number };
   gridSize: { colSpan: 1 | 2; rowSpan: 1 | 2 };
   pinned: boolean;
+  bookmarked: boolean;
   createdAt: number;
 }
 
-/** Session store shape */
+// ---------------------------------------------------------------------------
+// Chat
+// ---------------------------------------------------------------------------
+
+/** A single message in the chat thread */
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'system' | 'error';
+  content: string;
+  cardId?: string;
+  timestamp: number;
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks
+// ---------------------------------------------------------------------------
+
+/** Session-level bookmark (saves entire workspace state) */
+export interface Bookmark {
+  id: string;
+  name: string;
+  savedAt: number;
+  chatThread: ChatMessage[];
+  cards: CardState[];
+  workspaceName: string;
+}
+
+/** Per-card bookmark (bookmarks an individual card result) */
+export interface CardBookmark {
+  id: string;
+  cardId: string;
+  query: string;
+  chartType: string | null;
+  savedAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar / Threads
+// ---------------------------------------------------------------------------
+
+/** Summary of a chat thread shown in the sidebar history */
+export interface ThreadSummary {
+  id: string;
+  firstMessage: string;
+  lastActivity: number;
+  messageCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Session store
+// ---------------------------------------------------------------------------
+
+/** Full session store shape (zustand state + actions) */
 export interface SessionState {
   // Canvas
   cards: CardState[];
@@ -63,6 +133,7 @@ export interface SessionState {
   // UI state
   statsPanelCollapsed: boolean;
   loading: boolean;
+  workspaceName: string;
 
   // Actions
   submitQuery: (queryText: string) => Promise<void>;
@@ -74,35 +145,9 @@ export interface SessionState {
   unpinCard: (id: string) => void;
   setActiveCard: (id: string | null) => void;
   toggleStatsPanel: () => void;
+  toggleCardBookmark: (id: string) => void;
   saveBookmark: (name: string) => void;
   loadBookmark: (id: string) => void;
   deleteBookmark: (id: string) => void;
   startNewChat: () => void;
-}
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'system' | 'error';
-  content: string;
-  cardId?: string;
-  timestamp: number;
-  /** Error metadata for retry support */
-  errorStatus?: number;
-  /** Original query text for retry */
-  originalQuery?: string;
-}
-
-export interface Bookmark {
-  id: string;
-  name: string;
-  savedAt: number;
-  chatThread: ChatMessage[];
-  cards: CardState[];
-}
-
-export interface ThreadSummary {
-  id: string;
-  firstMessage: string;
-  lastActivity: number;
-  messageCount: number;
 }

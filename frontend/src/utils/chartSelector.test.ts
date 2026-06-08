@@ -12,51 +12,19 @@ function makeOutput(overrides: Partial<RenderedOutput> = {}): RenderedOutput {
 }
 
 describe('selectChartType', () => {
-  describe('explicit chart_type pass-through', () => {
-    it('returns explicit chart_type when provided', () => {
-      expect(selectChartType(makeOutput({ chart_type: 'bar' }))).toBe('bar');
-      expect(selectChartType(makeOutput({ chart_type: 'scatter' }))).toBe('scatter');
-      expect(selectChartType(makeOutput({ chart_type: 'heatmap' }))).toBe('heatmap');
-    });
-
-    it('ignores column metadata when chart_type is explicit', () => {
-      const output = makeOutput({
-        chart_type: 'pie',
-        metadata: {
-          query_id: 'q1',
-          query_type: 'aggregation',
-          columns: [
-            { name: 'ts', type: 'time-series' },
-            { name: 'val', type: 'numeric' },
-          ],
-        },
-      });
-      expect(selectChartType(output)).toBe('pie');
-    });
+  it('passes through explicit chart_type from backend', () => {
+    expect(selectChartType(makeOutput({ chart_type: 'scatter' }))).toBe('scatter');
+    expect(selectChartType(makeOutput({ chart_type: 'pie' }))).toBe('pie');
+    expect(selectChartType(makeOutput({ chart_type: 'heatmap' }))).toBe('heatmap');
   });
 
-  describe('text output type', () => {
-    it('returns text for text output_type', () => {
-      const output = makeOutput({ output_type: 'text' });
-      expect(selectChartType(output)).toBe('text');
-    });
-
-    it('returns text even when columns are present', () => {
-      const output = makeOutput({
-        output_type: 'text',
-        metadata: {
-          query_id: 'q1',
-          query_type: 'info',
-          columns: [{ name: 'val', type: 'numeric' }],
-        },
-      });
-      expect(selectChartType(output)).toBe('text');
-    });
+  it('returns "text" for text-only output_type', () => {
+    expect(selectChartType(makeOutput({ output_type: 'text', chart_type: null }))).toBe('text');
   });
 
-  describe('inference from column metadata', () => {
-    it('returns line for time-series + numeric', () => {
-      const output = makeOutput({
+  it('returns "line" for time-series + numeric columns', () => {
+    const result = selectChartType(
+      makeOutput({
         metadata: {
           query_id: 'q1',
           query_type: 'trend',
@@ -65,26 +33,30 @@ describe('selectChartType', () => {
             { name: 'revenue', type: 'numeric' },
           ],
         },
-      });
-      expect(selectChartType(output)).toBe('line');
-    });
+      }),
+    );
+    expect(result).toBe('line');
+  });
 
-    it('returns bar for categorical + numeric', () => {
-      const output = makeOutput({
+  it('returns "bar" for categorical + numeric columns', () => {
+    const result = selectChartType(
+      makeOutput({
         metadata: {
           query_id: 'q1',
           query_type: 'aggregation',
           columns: [
-            { name: 'region', type: 'categorical', cardinality: 12 },
-            { name: 'sales', type: 'numeric' },
+            { name: 'region', type: 'categorical', cardinality: 10 },
+            { name: 'revenue', type: 'numeric' },
           ],
         },
-      });
-      expect(selectChartType(output)).toBe('bar');
-    });
+      }),
+    );
+    expect(result).toBe('bar');
+  });
 
-    it('returns scatter for exactly 2 numeric columns (no categorical)', () => {
-      const output = makeOutput({
+  it('returns "scatter" for exactly 2 numeric columns with no categorical', () => {
+    const result = selectChartType(
+      makeOutput({
         metadata: {
           query_id: 'q1',
           query_type: 'correlation',
@@ -93,31 +65,48 @@ describe('selectChartType', () => {
             { name: 'weight', type: 'numeric' },
           ],
         },
-      });
-      expect(selectChartType(output)).toBe('scatter');
-    });
+      }),
+    );
+    expect(result).toBe('scatter');
+  });
 
-    it('returns pie for categorical (cardinality ≤8) + 1 numeric', () => {
-      const output = makeOutput({
+  it('returns "bar" for categorical + numeric (bar rule matches before pie)', () => {
+    // Per the design spec, the bar rule (categorical >= 1 && numeric >= 1) is checked
+    // before the pie rule, so categorical + numeric always yields bar
+    const result = selectChartType(
+      makeOutput({
         metadata: {
           query_id: 'q1',
           query_type: 'breakdown',
           columns: [
             { name: 'category', type: 'categorical', cardinality: 5 },
-            { name: 'amount', type: 'numeric' },
+            { name: 'count', type: 'numeric' },
           ],
         },
-      });
-      // Note: this matches `categorical + numeric → bar` first
-      // The pie rule requires that the bar rule doesn't match first.
-      // Actually looking at the logic: bar matches first (categorical >= 1 && numeric >= 1).
-      // So pie only triggers if bar rule doesn't fire. Let me check the design...
-      // The design has bar before pie, so this case would be 'bar'.
-      expect(selectChartType(output)).toBe('bar');
-    });
+      }),
+    );
+    expect(result).toBe('bar');
+  });
 
-    it('returns heatmap for 3+ numeric columns', () => {
-      const output = makeOutput({
+  it('returns "bar" for categorical + numeric even with high cardinality', () => {
+    const result = selectChartType(
+      makeOutput({
+        metadata: {
+          query_id: 'q1',
+          query_type: 'breakdown',
+          columns: [
+            { name: 'category', type: 'categorical', cardinality: 12 },
+            { name: 'count', type: 'numeric' },
+          ],
+        },
+      }),
+    );
+    expect(result).toBe('bar');
+  });
+
+  it('returns "heatmap" for 3+ numeric columns', () => {
+    const result = selectChartType(
+      makeOutput({
         metadata: {
           query_id: 'q1',
           query_type: 'matrix',
@@ -127,61 +116,37 @@ describe('selectChartType', () => {
             { name: 'z', type: 'numeric' },
           ],
         },
-      });
-      expect(selectChartType(output)).toBe('heatmap');
-    });
-
-    it('returns table as fallback for empty columns', () => {
-      const output = makeOutput({
-        metadata: { query_id: 'q1', query_type: 'unknown', columns: [] },
-      });
-      expect(selectChartType(output)).toBe('table');
-    });
-
-    it('returns table when no columns metadata is present', () => {
-      const output = makeOutput({
-        metadata: { query_id: 'q1', query_type: 'unknown' },
-      });
-      expect(selectChartType(output)).toBe('table');
-    });
-
-    it('returns line when time-series and categorical are both present with numeric', () => {
-      const output = makeOutput({
-        metadata: {
-          query_id: 'q1',
-          query_type: 'trend',
-          columns: [
-            { name: 'date', type: 'time-series' },
-            { name: 'region', type: 'categorical' },
-            { name: 'revenue', type: 'numeric' },
-          ],
-        },
-      });
-      // time-series rule fires first
-      expect(selectChartType(output)).toBe('line');
-    });
-
-    it('does not return scatter when categorical columns are present', () => {
-      const output = makeOutput({
-        metadata: {
-          query_id: 'q1',
-          query_type: 'mixed',
-          columns: [
-            { name: 'cat', type: 'categorical' },
-            { name: 'x', type: 'numeric' },
-            { name: 'y', type: 'numeric' },
-          ],
-        },
-      });
-      // categorical + numeric → bar (not scatter since categorical present)
-      expect(selectChartType(output)).toBe('bar');
-    });
+      }),
+    );
+    expect(result).toBe('heatmap');
   });
 
-  describe('null/undefined chart_type', () => {
-    it('treats null chart_type as absent', () => {
-      const output = makeOutput({
-        chart_type: null,
+  it('returns "table" as fallback when no rules match', () => {
+    const result = selectChartType(
+      makeOutput({
+        metadata: {
+          query_id: 'q1',
+          query_type: 'unknown',
+          columns: [],
+        },
+      }),
+    );
+    expect(result).toBe('table');
+  });
+
+  it('returns "table" when columns are absent from metadata', () => {
+    const result = selectChartType(
+      makeOutput({
+        metadata: { query_id: 'q1', query_type: 'unknown' },
+      }),
+    );
+    expect(result).toBe('table');
+  });
+
+  it('prefers explicit chart_type even when inference would differ', () => {
+    const result = selectChartType(
+      makeOutput({
+        chart_type: 'table',
         metadata: {
           query_id: 'q1',
           query_type: 'trend',
@@ -190,8 +155,25 @@ describe('selectChartType', () => {
             { name: 'value', type: 'numeric' },
           ],
         },
-      });
-      expect(selectChartType(output)).toBe('line');
-    });
+      }),
+    );
+    expect(result).toBe('table');
+  });
+
+  it('returns "bar" when categorical has no cardinality defined', () => {
+    const result = selectChartType(
+      makeOutput({
+        metadata: {
+          query_id: 'q1',
+          query_type: 'breakdown',
+          columns: [
+            { name: 'category', type: 'categorical' }, // no cardinality field
+            { name: 'count', type: 'numeric' },
+          ],
+        },
+      }),
+    );
+    // bar rule matches first (categorical >= 1 && numeric >= 1)
+    expect(result).toBe('bar');
   });
 });

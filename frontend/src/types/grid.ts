@@ -1,16 +1,20 @@
 /**
- * Grid position constants and type helpers for the 2×3 canvas grid.
+ * Grid layout constants and type helpers for the 2×3 canvas grid.
  *
- * Layout:
- * ┌─────────┬─────────┐
- * │ (0,0)   │ (1,0)   │  row 0
- * ├─────────┼─────────┤
- * │ (0,1)   │ (1,1)   │  row 1
- * ├─────────┼─────────┤
- * │ (0,2)   │ (1,2)   │  row 2
- * └─────────┴─────────┘
- *   col 0     col 1
+ * The canvas is organized as:
+ *   ┌─────────┬─────────┐
+ *   │ (0,0)   │ (1,0)   │  row 0
+ *   ├─────────┼─────────┤
+ *   │ (0,1)   │ (1,1)   │  row 1
+ *   ├─────────┼─────────┤
+ *   │ (0,2)   │ (1,2)   │  row 2
+ *   └─────────┴─────────┘
+ *     col 0     col 1
  */
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 /** Number of columns in the canvas grid */
 export const GRID_COLS = 2;
@@ -18,36 +22,28 @@ export const GRID_COLS = 2;
 /** Number of rows in the canvas grid */
 export const GRID_ROWS = 3;
 
-/** Maximum number of cells in the grid */
-export const GRID_MAX_CELLS = GRID_COLS * GRID_ROWS;
+/** Maximum number of cards (1×1) the grid can hold */
+export const MAX_CARDS = 6;
 
-/** Valid column indices */
-export type GridCol = 0 | 1;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-/** Valid row indices */
-export type GridRow = 0 | 1 | 2;
+/** A position in the canvas grid (zero-indexed) */
+export type GridPosition = { col: number; row: number };
 
-/** A position on the grid */
-export interface GridPosition {
-  col: GridCol;
-  row: GridRow;
-}
+/** Span of a card in the grid (1 or 2 columns/rows) */
+export type GridSize = { colSpan: 1 | 2; rowSpan: 1 | 2 };
 
-/** Allowed span sizes for cards */
-export type ColSpan = 1 | 2;
-export type RowSpan = 1 | 2;
-
-/** Card size in grid units */
-export interface GridSize {
-  colSpan: ColSpan;
-  rowSpan: RowSpan;
-}
+// ---------------------------------------------------------------------------
+// Constants – position enumeration
+// ---------------------------------------------------------------------------
 
 /**
  * All grid positions in left-to-right, top-to-bottom order.
- * Used by the card placement algorithm to find the next available slot.
+ * This order is used by the card placement algorithm.
  */
-export const GRID_POSITIONS_LTR_TTB: readonly GridPosition[] = [
+export const ALL_POSITIONS: readonly GridPosition[] = [
   { col: 0, row: 0 },
   { col: 1, row: 0 },
   { col: 0, row: 1 },
@@ -56,46 +52,26 @@ export const GRID_POSITIONS_LTR_TTB: readonly GridPosition[] = [
   { col: 1, row: 2 },
 ] as const;
 
-/**
- * Check if a position is within the grid boundaries.
- */
-export function isValidPosition(col: number, row: number): boolean {
-  return col >= 0 && col < GRID_COLS && row >= 0 && row < GRID_ROWS;
+// ---------------------------------------------------------------------------
+// Type helpers / guards
+// ---------------------------------------------------------------------------
+
+/** Check if a position is within the grid boundaries */
+export function isValidPosition(pos: GridPosition): boolean {
+  return pos.col >= 0 && pos.col < GRID_COLS && pos.row >= 0 && pos.row < GRID_ROWS;
 }
 
-/**
- * Check if a card with given position and size fits within the grid boundaries.
- */
-export function fitsInGrid(
-  col: number,
-  row: number,
-  colSpan: ColSpan,
-  rowSpan: RowSpan,
-): boolean {
-  return col + colSpan <= GRID_COLS && row + rowSpan <= GRID_ROWS;
+/** Check if a card with given position and size fits within the grid */
+export function fitsInGrid(pos: GridPosition, size: GridSize): boolean {
+  return (
+    pos.col >= 0 &&
+    pos.row >= 0 &&
+    pos.col + size.colSpan <= GRID_COLS &&
+    pos.row + size.rowSpan <= GRID_ROWS
+  );
 }
 
-/**
- * Convert a grid position to a unique cell key string for use in Sets/Maps.
- */
-export function cellKey(col: number, row: number): string {
+/** Convert a grid position to a unique string key (useful for Set/Map lookups) */
+export function positionKey(col: number, row: number): string {
   return `${col},${row}`;
-}
-
-/**
- * Get all cells occupied by a card at the given position with the given span.
- */
-export function getOccupiedCells(
-  col: number,
-  row: number,
-  colSpan: ColSpan,
-  rowSpan: RowSpan,
-): string[] {
-  const cells: string[] = [];
-  for (let c = col; c < col + colSpan; c++) {
-    for (let r = row; r < row + rowSpan; r++) {
-      cells.push(cellKey(c, r));
-    }
-  }
-  return cells;
 }

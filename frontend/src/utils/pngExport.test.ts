@@ -11,100 +11,132 @@ import html2canvas from 'html2canvas';
 describe('exportPNG', () => {
   let mockElement: HTMLElement;
   let mockCanvas: HTMLCanvasElement;
-  let clickSpy: ReturnType<typeof vi.fn>;
+  let mockLink: HTMLAnchorElement;
+  let createObjectURLMock: ReturnType<typeof vi.fn>;
+  let revokeObjectURLMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    mockElement = document.createElement('div');
-    Object.defineProperty(mockElement, 'offsetWidth', { value: 400 });
-    Object.defineProperty(mockElement, 'offsetHeight', { value: 300 });
+    vi.useFakeTimers();
 
+    // Create a mock element with dimensions
+    mockElement = document.createElement('div');
+    Object.defineProperty(mockElement, 'offsetWidth', { value: 800 });
+    Object.defineProperty(mockElement, 'offsetHeight', { value: 600 });
+
+    // Create a mock canvas that returns a blob
     mockCanvas = document.createElement('canvas');
-    mockCanvas.width = 400;
-    mockCanvas.height = 300;
+    const mockBlob = new Blob(['fake-png-data'], { type: 'image/png' });
+    vi.spyOn(mockCanvas, 'toBlob').mockImplementation((callback) => {
+      callback(mockBlob);
+    });
+
+    // Mock html2canvas to return our mock canvas
     vi.mocked(html2canvas).mockResolvedValue(mockCanvas);
 
-    clickSpy = vi.fn();
+    // Mock URL.createObjectURL and revokeObjectURL
+    createObjectURLMock = vi.fn().mockReturnValue('blob:http://localhost/fake-url');
+    revokeObjectURLMock = vi.fn();
+    URL.createObjectURL = createObjectURLMock;
+    URL.revokeObjectURL = revokeObjectURLMock;
+
+    // Spy on link click and DOM operations
+    mockLink = document.createElement('a');
     vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      if (tag === 'a') {
-        const link = {
-          href: '',
-          download: '',
-          click: clickSpy,
-        } as unknown as HTMLAnchorElement;
-        return link;
-      }
+      if (tag === 'a') return mockLink;
       return document.createElement(tag);
     });
-    vi.spyOn(document.body, 'appendChild').mockImplementation((node) => node);
-    vi.spyOn(document.body, 'removeChild').mockImplementation((node) => node);
+    vi.spyOn(mockLink, 'click').mockImplementation(() => {});
+    vi.spyOn(document.body, 'appendChild').mockImplementation((node) => node as HTMLElement);
+    vi.spyOn(document.body, 'removeChild').mockImplementation((node) => node as HTMLElement);
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('calls html2canvas with correct options', async () => {
-    await exportPNG(mockElement, 'test-chart.png');
+  it('captures the element using html2canvas with correct dimensions', async () => {
+    await exportPNG({ element: mockElement });
 
     expect(html2canvas).toHaveBeenCalledWith(mockElement, {
       useCORS: true,
       backgroundColor: '#ffffff',
-      scale: window.devicePixelRatio || 1,
-      width: 400,
-      height: 300,
+      width: 800,
+      height: 600,
     });
   });
 
-  it('triggers download with correct filename', async () => {
-    await exportPNG(mockElement, 'my-chart.png');
+  it('triggers a download with the correct filename', async () => {
+    await exportPNG({ element: mockElement, filename: 'my-chart' });
 
-    expect(clickSpy).toHaveBeenCalled();
-  });
-
-  it('appends .png if filename does not end with it', async () => {
-    await exportPNG(mockElement, 'my-chart');
-
-    const createElCalls = vi.mocked(document.createElement).mock.results;
-    const linkResult = createElCalls.find(
-      (r) => r.type === 'return' && (r.value as HTMLElement).tagName !== 'CANVAS'
-    );
-    if (linkResult && linkResult.type === 'return') {
-      expect((linkResult.value as HTMLAnchorElement).download).toBe('my-chart.png');
-    }
+    expect(mockLink.download).toBe('my-chart.png');
+    expect(mockLink.href).toBe('blob:http://localhost/fake-url');
+    expect(mockLink.click).toHaveBeenCalled();
   });
 
   it('uses default filename when none provided', async () => {
-    await exportPNG(mockElement);
+    await exportPNG({ element: mockElement });
 
-    expect(clickSpy).toHaveBeenCalled();
+    expect(mockLink.download).toBe('chart-export.png');
+  });
+
+  it('creates and revokes the object URL', async () => {
+    await exportPNG({ element: mockElement });
+
+    expect(createObjectURLMock).toHaveBeenCalled();
+
+    // Advance timers to trigger cleanup
+    vi.advanceTimersByTime(100);
+    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:http://localhost/fake-url');
+  });
+
+  it('cleans up the link element from DOM after click', async () => {
+    await exportPNG({ element: mockElement });
+
+    expect(document.body.appendChild).toHaveBeenCalledWith(mockLink);
+    expect(document.body.removeChild).toHaveBeenCalledWith(mockLink);
   });
 
   it('calls onError callback when html2canvas fails', async () => {
     const error = new Error('Canvas rendering failed');
     vi.mocked(html2canvas).mockRejectedValue(error);
-
     const onError = vi.fn();
-    await exportPNG(mockElement, 'chart.png', onError);
+
+    await exportPNG({ element: mockElement, onError });
 
     expect(onError).toHaveBeenCalledWith(error);
   });
 
-  it('wraps non-Error thrown values in an Error', async () => {
-    vi.mocked(html2canvas).mockRejectedValue('string error');
-
+  it('calls onError callback when toBlob returns null', async () => {
+    vi.spyOn(mockCanvas, 'toBlob').mockImplementation((callback) => {
+      callback(null);
+    });
     const onError = vi.fn();
-    await exportPNG(mockElement, 'chart.png', onError);
 
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
-    expect(onError.mock.calls[0][0].message).toBe('PNG export failed');
+    await exportPNG({ element: mockElement, onError });
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Failed to convert canvas to PNG blob' })
+    );
   });
 
-  it('throws when export fails and no onError provided', async () => {
+  it('logs error to console when no onError callback provided', async () => {
     const error = new Error('Canvas rendering failed');
     vi.mocked(html2canvas).mockRejectedValue(error);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await expect(exportPNG(mockElement, 'chart.png')).rejects.toThrow(
-      'Canvas rendering failed'
-    );
+    await exportPNG({ element: mockElement });
+
+    expect(consoleSpy).toHaveBeenCalledWith('PNG export failed:', error);
+  });
+
+  it('wraps non-Error thrown values into Error objects for onError', async () => {
+    vi.mocked(html2canvas).mockRejectedValue('string error');
+    const onError = vi.fn();
+
+    await exportPNG({ element: mockElement, onError });
+
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(onError.mock.calls[0][0].message).toBe('string error');
   });
 });

@@ -1,155 +1,225 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ChatBar } from './ChatBar';
-import { useSessionStore } from '../store/sessionStore';
+/**
+ * Unit tests for ChatBar component.
+ *
+ * Tests cover:
+ * - Rendering with correct aria-label and placeholder
+ * - 500-char max enforcement
+ * - Submit on button click and Enter key
+ * - Prevent submission on empty/whitespace-only input
+ * - Disable input/button while loading
+ * - Voice icon hidden when unsupported, shown when supported
+ */
 
-// Mock the sessionStore
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { ChatBar } from './ChatBar';
+
+// Mock the session store
+const mockSubmitQuery = vi.fn();
+let mockLoading = false;
+
 vi.mock('../store/sessionStore', () => ({
-  useSessionStore: vi.fn(),
+  useSessionStore: (selector: any) => {
+    const state = {
+      loading: mockLoading,
+      submitQuery: mockSubmitQuery,
+    };
+    return selector(state);
+  },
 }));
 
-const mockUseSessionStore = vi.mocked(useSessionStore);
-
 describe('ChatBar', () => {
-  let mockSubmitQuery: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
-    mockSubmitQuery = vi.fn().mockResolvedValue(undefined);
-    mockUseSessionStore.mockImplementation((selector: unknown) => {
-      const state = {
-        loading: false,
-        submitQuery: mockSubmitQuery,
-      };
-      return (selector as (s: typeof state) => unknown)(state);
-    });
+    mockLoading = false;
+    mockSubmitQuery.mockClear();
+    // Default: no speech support
+    (window as any).SpeechRecognition = undefined;
+    (window as any).webkitSpeechRecognition = undefined;
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    delete (window as any).SpeechRecognition;
+    delete (window as any).webkitSpeechRecognition;
   });
 
-  it('renders input, submit button, and voice icon when Speech API is supported', () => {
-    // Mock SpeechRecognition support
-    Object.defineProperty(window, 'webkitSpeechRecognition', {
-      value: class {},
-      writable: true,
-      configurable: true,
-    });
-
+  it('renders with the correct aria-label', () => {
     render(<ChatBar />);
-
-    expect(screen.getByLabelText('Query input')).toBeInTheDocument();
-    expect(screen.getByLabelText('Submit query')).toBeInTheDocument();
-    expect(screen.getByLabelText('Voice input')).toBeInTheDocument();
-
-    // Clean up
-    delete (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    expect(screen.getByLabelText('Chat bar')).toBeInTheDocument();
   });
 
-  it('hides voice icon when Speech API is not supported', () => {
-    // Ensure no Speech API
-    delete (window as unknown as Record<string, unknown>).SpeechRecognition;
-    delete (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
-
+  it('renders a text input with the correct placeholder', () => {
     render(<ChatBar />);
-
-    expect(screen.queryByLabelText('Voice input')).not.toBeInTheDocument();
+    const input = screen.getByPlaceholderText('Ask a question about your data...');
+    expect(input).toBeInTheDocument();
+    expect(input).not.toBeDisabled();
   });
 
-  it('prevents submission when input is empty', async () => {
-    const user = userEvent.setup();
+  it('renders a submit button', () => {
     render(<ChatBar />);
-
-    const submitBtn = screen.getByLabelText('Submit query');
-    expect(submitBtn).toBeDisabled();
-
-    await user.click(submitBtn);
-    expect(mockSubmitQuery).not.toHaveBeenCalled();
+    const button = screen.getByLabelText('Submit query');
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveTextContent('Send');
   });
 
-  it('prevents submission when input contains only whitespace', async () => {
-    const user = userEvent.setup();
+  it('enforces 500-char max on the input', async () => {
     render(<ChatBar />);
+    const input = screen.getByLabelText('Query input') as HTMLInputElement;
+    const longText = 'a'.repeat(600);
 
+    await userEvent.type(input, longText);
+
+    expect(input.value.length).toBeLessThanOrEqual(500);
+  });
+
+  it('submits on button click with valid input', async () => {
+    render(<ChatBar />);
     const input = screen.getByLabelText('Query input');
-    await user.type(input, '   ');
+    const button = screen.getByLabelText('Submit query');
 
-    const submitBtn = screen.getByLabelText('Submit query');
-    expect(submitBtn).toBeDisabled();
+    await userEvent.type(input, 'show revenue');
+    await userEvent.click(button);
 
-    await user.click(submitBtn);
-    expect(mockSubmitQuery).not.toHaveBeenCalled();
+    expect(mockSubmitQuery).toHaveBeenCalledWith('show revenue');
   });
 
-  it('submits query on button click with valid input', async () => {
-    const user = userEvent.setup();
+  it('submits on Enter key with valid input', async () => {
     render(<ChatBar />);
-
     const input = screen.getByLabelText('Query input');
-    await user.type(input, 'show revenue by region');
 
-    const submitBtn = screen.getByLabelText('Submit query');
-    expect(submitBtn).not.toBeDisabled();
+    await userEvent.type(input, 'show revenue{enter}');
 
-    await user.click(submitBtn);
-    expect(mockSubmitQuery).toHaveBeenCalledWith('show revenue by region');
-  });
-
-  it('submits query on Enter key press', async () => {
-    const user = userEvent.setup();
-    render(<ChatBar />);
-
-    const input = screen.getByLabelText('Query input');
-    await user.type(input, 'total sales{enter}');
-
-    expect(mockSubmitQuery).toHaveBeenCalledWith('total sales');
+    expect(mockSubmitQuery).toHaveBeenCalledWith('show revenue');
   });
 
   it('clears input after successful submission', async () => {
-    const user = userEvent.setup();
     render(<ChatBar />);
+    const input = screen.getByLabelText('Query input') as HTMLInputElement;
 
+    await userEvent.type(input, 'show revenue{enter}');
+
+    expect(input.value).toBe('');
+  });
+
+  it('prevents submission on empty input', async () => {
+    render(<ChatBar />);
+    const button = screen.getByLabelText('Submit query');
+
+    await userEvent.click(button);
+
+    expect(mockSubmitQuery).not.toHaveBeenCalled();
+  });
+
+  it('prevents submission on whitespace-only input', async () => {
+    render(<ChatBar />);
     const input = screen.getByLabelText('Query input');
-    await user.type(input, 'show data');
-    await user.click(screen.getByLabelText('Submit query'));
+    const button = screen.getByLabelText('Submit query');
 
-    expect(input).toHaveValue('');
+    await userEvent.type(input, '   ');
+    await userEvent.click(button);
+
+    expect(mockSubmitQuery).not.toHaveBeenCalled();
+  });
+
+  it('prevents submission on Enter with whitespace-only input', async () => {
+    render(<ChatBar />);
+    const input = screen.getByLabelText('Query input');
+
+    await userEvent.type(input, '   {enter}');
+
+    expect(mockSubmitQuery).not.toHaveBeenCalled();
   });
 
   it('disables input and button while loading', () => {
-    mockUseSessionStore.mockImplementation((selector: unknown) => {
-      const state = {
-        loading: true,
-        submitQuery: mockSubmitQuery,
-      };
-      return (selector as (s: typeof state) => unknown)(state);
-    });
-
+    mockLoading = true;
     render(<ChatBar />);
 
     const input = screen.getByLabelText('Query input');
-    const submitBtn = screen.getByLabelText('Submit query');
+    const button = screen.getByLabelText('Submit query');
 
     expect(input).toBeDisabled();
-    expect(submitBtn).toBeDisabled();
+    expect(button).toBeDisabled();
   });
 
-  it('enforces 500 character max length', async () => {
-    const user = userEvent.setup();
+  it('hides voice icon when Web Speech API is not supported', () => {
     render(<ChatBar />);
-
-    const input = screen.getByLabelText('Query input');
-    const longText = 'a'.repeat(600);
-    await user.type(input, longText);
-
-    expect((input as HTMLInputElement).value.length).toBeLessThanOrEqual(500);
+    const voiceButton = screen.queryByLabelText('Start voice input');
+    expect(voiceButton).not.toBeInTheDocument();
   });
 
-  it('renders as a fixed bottom bar', () => {
+  it('shows voice icon when Web Speech API is supported', () => {
+    (window as any).SpeechRecognition = vi.fn();
     render(<ChatBar />);
+    const voiceButton = screen.getByLabelText('Start voice input');
+    expect(voiceButton).toBeInTheDocument();
+  });
 
-    const form = screen.getByRole('form', { name: 'Chat input' });
-    expect(form).toHaveClass('fixed', 'bottom-0');
+  it('starts voice recognition on voice icon click', () => {
+    const mockStart = vi.fn();
+    class MockRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = '';
+      onresult: any = null;
+      onerror: any = null;
+      onend: any = null;
+      start = mockStart;
+      stop = vi.fn();
+      abort = vi.fn();
+    }
+    (window as any).SpeechRecognition = MockRecognition;
+
+    render(<ChatBar />);
+    const voiceButton = screen.getByLabelText('Start voice input');
+
+    fireEvent.click(voiceButton);
+
+    expect(mockStart).toHaveBeenCalled();
+  });
+
+  it('appends transcribed text to input on voice result', async () => {
+    let recognitionInstance: any;
+    class MockRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = '';
+      onresult: any = null;
+      onerror: any = null;
+      onend: any = null;
+      start = vi.fn();
+      stop = vi.fn();
+      abort = vi.fn();
+      constructor() {
+        recognitionInstance = this;
+      }
+    }
+    (window as any).SpeechRecognition = MockRecognition;
+
+    render(<ChatBar />);
+    const input = screen.getByLabelText('Query input') as HTMLInputElement;
+    const voiceButton = screen.getByLabelText('Start voice input');
+
+    // Type some text first
+    await userEvent.type(input, 'hello ');
+
+    // Click voice button to start recognition
+    fireEvent.click(voiceButton);
+
+    // Simulate speech result
+    act(() => {
+      recognitionInstance.onresult({
+        results: [[{ transcript: 'world' }]],
+      });
+    });
+
+    expect(input.value).toBe('hello world');
+  });
+
+  it('disables voice button while loading', () => {
+    mockLoading = true;
+    (window as any).SpeechRecognition = vi.fn();
+    render(<ChatBar />);
+    const voiceButton = screen.getByLabelText('Start voice input');
+    expect(voiceButton).toBeDisabled();
   });
 });

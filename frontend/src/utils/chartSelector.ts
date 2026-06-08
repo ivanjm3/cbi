@@ -1,15 +1,17 @@
 import type { RenderedOutput } from '../types';
 
-/** Supported chart types for visualization rendering */
+/**
+ * Supported chart types for visualization rendering.
+ */
 export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'table' | 'heatmap' | 'text';
 
 /**
- * Determines the chart type to render for a given backend response.
+ * Selects the appropriate chart type for a given rendered output.
  *
  * Selection priority:
- * 1. Explicit `chart_type` from the backend (pass-through)
- * 2. Text-only output type → 'text'
- * 3. Inferred from column metadata:
+ * 1. Explicit `chart_type` from the backend response (pass-through)
+ * 2. Text-only output → 'text'
+ * 3. Inference from column metadata:
  *    - time-series + numeric → line
  *    - categorical + numeric → bar
  *    - 2 numeric (no categorical) → scatter
@@ -26,9 +28,9 @@ export function selectChartType(renderedOutput: RenderedOutput): ChartType {
 
   // 3. Infer from data shape
   const columns = renderedOutput.metadata?.columns ?? [];
-  const hasTime = columns.some(c => c.type === 'time-series');
-  const numericCols = columns.filter(c => c.type === 'numeric');
-  const categoricalCols = columns.filter(c => c.type === 'categorical');
+  const hasTime = columns.some((c) => c.type === 'time-series');
+  const numericCols = columns.filter((c) => c.type === 'numeric');
+  const categoricalCols = columns.filter((c) => c.type === 'categorical');
 
   if (hasTime && numericCols.length >= 1) return 'line';
   if (categoricalCols.length >= 1 && numericCols.length >= 1) return 'bar';
@@ -37,7 +39,8 @@ export function selectChartType(renderedOutput: RenderedOutput): ChartType {
     categoricalCols.length >= 1 &&
     numericCols.length === 1 &&
     (categoricalCols[0]?.cardinality ?? 9) <= 8
-  ) return 'pie';
+  )
+    return 'pie';
   if (numericCols.length >= 3) return 'heatmap';
 
   return 'table'; // fallback
