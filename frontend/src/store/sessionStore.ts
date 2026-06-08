@@ -208,6 +208,32 @@ export const useSessionStore = create<SessionState>()(
           const result = await queryBackend(queryText);
 
           if (result.ok) {
+            // Validate that result.data has required fields
+            if (!result.data || typeof result.data !== 'object') {
+              const errorMessage: ChatMessage = {
+                id: generateId(),
+                role: 'error',
+                content: 'Received an invalid response from the server.',
+                timestamp: Date.now(),
+                originalQuery: queryText,
+              };
+              set({
+                chatThread: [...get().chatThread, errorMessage],
+                loading: false,
+              });
+              return;
+            }
+
+            // Ensure required fields have defaults
+            const renderedOutput = {
+              output_type: result.data.output_type ?? 'text',
+              chart_type: result.data.chart_type ?? null,
+              chart_data: result.data.chart_data ?? null,
+              text_content: result.data.text_content ?? null,
+              description: result.data.description ?? 'Query completed.',
+              metadata: result.data.metadata ?? { query_id: generateId(), query_type: 'unknown' },
+            } as typeof result.data;
+
             const state = get();
             const position = nextPosition(state.cards);
             let newCards = [...state.cards];
@@ -217,7 +243,7 @@ export const useSessionStore = create<SessionState>()(
               const newCard: CardState = {
                 id: generateId(),
                 query: queryText,
-                renderedOutput: result.data,
+                renderedOutput: renderedOutput,
                 gridPosition: position,
                 gridSize: { colSpan: 1, rowSpan: 1 },
                 pinned: false,
@@ -229,7 +255,7 @@ export const useSessionStore = create<SessionState>()(
               const systemMessage: ChatMessage = {
                 id: generateId(),
                 role: 'system',
-                content: result.data.description,
+                content: renderedOutput.description,
                 cardId: newCard.id,
                 timestamp: Date.now(),
               };
@@ -247,7 +273,7 @@ export const useSessionStore = create<SessionState>()(
                 const newCard: CardState = {
                   id: generateId(),
                   query: queryText,
-                  renderedOutput: result.data,
+                  renderedOutput: renderedOutput,
                   gridPosition: oldest.gridPosition,
                   gridSize: { colSpan: 1, rowSpan: 1 },
                   pinned: false,
@@ -260,7 +286,7 @@ export const useSessionStore = create<SessionState>()(
                 const systemMessage: ChatMessage = {
                   id: generateId(),
                   role: 'system',
-                  content: result.data.description,
+                  content: renderedOutput.description,
                   cardId: newCard.id,
                   timestamp: Date.now(),
                 };
@@ -286,6 +312,8 @@ export const useSessionStore = create<SessionState>()(
                 result.error?.error_message ??
                 `Request failed with status ${result.status}`,
               timestamp: Date.now(),
+              statusCode: result.status,
+              originalQuery: queryText,
             };
 
             set({
@@ -299,6 +327,7 @@ export const useSessionStore = create<SessionState>()(
             role: 'error',
             content: err?.message ?? 'An unexpected error occurred',
             timestamp: Date.now(),
+            originalQuery: queryText,
           };
 
           set({
@@ -418,13 +447,13 @@ export const useSessionStore = create<SessionState>()(
 
       startNewChat: () => {
         const state = get();
-        // Save current thread as a history entry if it has messages
+        // Save current thread as a history entry if it has messages OR cards
         const newThreads = [...state.threads];
-        if (state.chatThread.length > 0) {
+        if (state.chatThread.length > 0 || state.cards.length > 0) {
           const firstUserMsg = state.chatThread.find((m) => m.role === 'user');
           const summary: ThreadSummary = {
             id: generateId(),
-            firstMessage: firstUserMsg?.content ?? 'New conversation',
+            firstMessage: firstUserMsg?.content ?? state.cards[0]?.query ?? 'New conversation',
             lastActivity: Date.now(),
             messageCount: state.chatThread.length,
           };
@@ -433,11 +462,10 @@ export const useSessionStore = create<SessionState>()(
           if (newThreads.length > 50) newThreads.pop();
         }
 
-        // Clear chat and remove unpinned cards
-        const pinnedCards = state.cards.filter((c) => c.pinned);
+        // Clear everything for a completely blank workspace
         set({
           chatThread: [],
-          cards: pinnedCards,
+          cards: [],
           activeCardId: null,
           threads: newThreads,
           loading: false,

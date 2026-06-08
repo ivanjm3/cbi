@@ -58,7 +58,11 @@ class OntologyStore:
         self._load_all()
 
     def _load_all(self) -> None:
-        """Load all ontology definitions from S3 into memory."""
+        """Load all ontology definitions from S3 into memory.
+        
+        Falls back to loading from local data/ontology/ directory if S3
+        is unavailable (e.g., local development without AWS credentials).
+        """
         try:
             paginator = self._s3.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
@@ -77,6 +81,33 @@ class OntologyStore:
                             logger.error(f"Failed to read {key}: {e}")
         except Exception as e:
             logger.error(f"Failed to list ontology objects: {e}")
+
+        # Fallback: load from local filesystem if S3 yielded nothing
+        if not self._definitions:
+            self._load_from_local()
+
+    def _load_from_local(self) -> None:
+        """Load ontology definitions from local data/ontology/ directory.
+
+        Used as fallback when S3 is unavailable (local dev, no AWS creds).
+        """
+        import pathlib
+        local_dir = pathlib.Path("data/ontology")
+        if not local_dir.exists():
+            logger.warning(f"Local ontology directory not found: {local_dir}")
+            return
+
+        for json_file in local_dir.glob("*.json"):
+            try:
+                body = json_file.read_text(encoding="utf-8")
+                definition = self.deserialize(body)
+                name = definition.metadata.get("name", json_file.stem)
+                self._definitions[name] = definition
+                logger.info(f"Loaded ontology from local file: {json_file.name}")
+            except OntologyStoreError as e:
+                logger.error(f"Failed to load local ontology {json_file}: {e.message}")
+            except Exception as e:
+                logger.error(f"Failed to read local ontology {json_file}: {e}")
 
     # --- Query Interface ---
 

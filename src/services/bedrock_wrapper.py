@@ -1,8 +1,8 @@
 """Bedrock model wrapper with cost tracking for Strands agents.
 
 This module provides utilities to track Bedrock costs for Strands agents.
-Since Strands SDK doesn't expose token counts directly, we use a post-invocation
-callback pattern to extract usage from agent responses.
+Uses the Strands SDK's built-in metrics (result.metrics.accumulated_usage)
+to extract accurate token counts from agent responses.
 """
 
 import json
@@ -22,37 +22,51 @@ def track_agent_invocation(
 ) -> None:
     """Track token usage and cost from a Strands agent invocation.
 
-    Extracts token counts from the agent response and logs them to the cost tracker.
-    This should be called after every agent invocation.
+    Extracts actual token counts from the Strands AgentResult.metrics.accumulated_usage
+    dict which contains inputTokens, outputTokens, and totalTokens from all
+    underlying Bedrock calls (including multi-turn tool-use rounds).
+
+    Falls back to string-length estimation only if metrics are unavailable.
 
     Args:
-        component: Component name (e.g., "orchestrator_hub", "spoke_agent_json").
+        component: Component name (e.g., "orchestrator_hub", "visualization_renderer").
         model_id: The Bedrock model ID used.
-        response: The agent response object.
+        response: The Strands AgentResult object.
         correlation_id: Optional correlation ID for request tracing.
     """
     try:
-        # Strands agents return a response object. The underlying Bedrock
-        # response metadata may be in response._metadata or similar.
-        # For now, we estimate based on string length as a fallback.
-        # TODO: Update when Strands SDK exposes token counts directly.
-        
-        # Rough estimation: 1 token ≈ 4 characters for English text
-        response_text = str(response)
-        estimated_output_tokens = len(response_text) // 4
-        
-        # We don't have input token counts without accessing the prompt,
-        # so we log a warning and use a conservative estimate.
-        estimated_input_tokens = 100  # Conservative default for agent prompts
-        
-        if estimated_output_tokens > 0:
+        input_tokens = 0
+        output_tokens = 0
+        source = "estimated"
+
+        # Primary: extract actual token counts from Strands AgentResult.metrics
+        if hasattr(response, "metrics") and response.metrics is not None:
+            accumulated_usage = getattr(response.metrics, "accumulated_usage", None)
+            if accumulated_usage and isinstance(accumulated_usage, dict):
+                input_tokens = accumulated_usage.get("inputTokens", 0)
+                output_tokens = accumulated_usage.get("outputTokens", 0)
+                if input_tokens > 0 or output_tokens > 0:
+                    source = "strands_metrics"
+
+        # Fallback: estimate from response string length if metrics unavailable
+        if input_tokens == 0 and output_tokens == 0:
+            response_text = str(response)
+            output_tokens = len(response_text) // 4
+            input_tokens = 150  # Conservative minimum for agent system prompt + user prompt
+            source = "estimated"
+            logger.warning(
+                f"Cost tracking for {component}: Strands metrics unavailable, "
+                f"using string-length estimation (output_tokens={output_tokens})"
+            )
+
+        if input_tokens > 0 or output_tokens > 0:
             get_cost_tracker().log_invocation(
                 model_id=model_id,
                 component=component,
-                input_tokens=estimated_input_tokens,
-                output_tokens=estimated_output_tokens,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
                 correlation_id=correlation_id,
-                metadata={"note": "Estimated from response length (Strands SDK limitation)"},
+                metadata={"source": source},
             )
     except Exception as e:
         # Don't let tracking failures break the agent

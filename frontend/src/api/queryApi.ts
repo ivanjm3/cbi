@@ -6,7 +6,7 @@
 import type { RenderedOutput } from '../types';
 
 export const API_BASE = 'http://localhost:8001';
-export const TIMEOUT_MS = 60_000;
+export const TIMEOUT_MS = 120_000;
 
 /** Error shape returned by the backend on non-200 responses */
 export interface ApiError {
@@ -57,8 +57,8 @@ export async function queryBackend(queryText: string): Promise<QueryResult> {
 
     return {
       ok: true,
-      data: data.rendered_output,
-      latencyMs: data.rendered_output?.metadata?.latency_ms ?? elapsed,
+      data: data.rendered_output ?? data,
+      latencyMs: data.rendered_output?.metadata?.latency_ms ?? data.metadata?.latency_ms ?? elapsed,
     };
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') {

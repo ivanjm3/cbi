@@ -19,24 +19,32 @@ The application lives in `frontend/` as a standalone Vite project. The backend C
 ```mermaid
 graph TB
     subgraph Browser
+        TopBar[Top Bar]
         App[App Shell]
         Sidebar[Sidebar]
         Canvas[Canvas Grid]
         ChatBar[Chat Bar]
         StatsPanel[Stats Panel]
+        ErrorThread[Error Thread]
+        SaveModal[Save Session Modal]
         
+        App --> TopBar
         App --> Sidebar
         App --> Canvas
         App --> ChatBar
         App --> StatsPanel
         
+        TopBar --> SaveModal
         Canvas --> VC1[Visualization Card 1]
         Canvas --> VC2[Visualization Card 2]
         Canvas --> VCn[Visualization Card N]
+        Canvas --> ErrorThread
+        ErrorThread --> EC[Error Card]
         
         VC1 --> Toolbar1[Card Toolbar]
         VC1 --> Chart1[Recharts Component]
         VC1 --> Drawer1[Transparency Drawer]
+        VC1 --> FSModal[Fullscreen Modal]
     end
     
     subgraph State
@@ -54,8 +62,10 @@ graph TB
     Store -->|POST /query| API
     API -->|rendered_output + meta| Store
     Store -->|update cards| Canvas
+    Store -->|error messages| ErrorThread
     Store -->|update threads| Sidebar
     Store -->|card stats| StatsPanel
+    SaveModal -->|saveBookmark| Store
 ```
 
 ### Data Flow
@@ -68,12 +78,19 @@ graph TB
 6. Stats Panel reads the `metadata.columns` from the active card's data
 7. Session state is persisted to localStorage on every change
 
+**Error Flow:**
+1. If backend returns 422/503/504 or request times out (60s), store appends a ChatMessage with `role: 'error'`, `statusCode`, and `originalQuery`
+2. Canvas's ErrorThread component renders ErrorCard for each error message
+3. ErrorCards for 503/504/408 include a retry button that re-invokes `submitQuery` with the original query text
+
 ## Components and Interfaces
 
 ### Component Tree
 
 ```
 <App>
+├── <TopBar>
+│   └── <SaveSessionModal /> (conditional)
 ├── <Sidebar>
 │   ├── <NewChatButton />
 │   ├── <ThreadList />
@@ -81,24 +98,29 @@ graph TB
 │   └── <BookmarkList />
 │       └── <BookmarkItem /> (×50 max)
 ├── <Canvas>
-│   └── <CanvasGrid> (react-dnd DndProvider)
-│       └── <VisualizationCard /> (×6 max)
-│           ├── <UserMessage />
-│           ├── <CardToolbar />
-│           ├── <ChartRenderer />
-│           │   ├── <BarChart /> | <LineChart /> | <ScatterChart />
-│           │   ├── <PieChart /> | <HeatmapChart />
-│           │   └── <DataTable />
-│           └── <TransparencyDrawer />
+│   ├── <CanvasGrid> (react-dnd DndProvider)
+│   │   ├── <DraggableCard /> (×6 max)
+│   │   │   └── <VisualizationCard />
+│   │   │       ├── <UserMessage />
+│   │   │       ├── <CardToolbar />
+│   │   │       ├── <ChartRenderer />
+│   │   │       │   ├── <BarChart /> | <LineChart /> | <ScatterChart />
+│   │   │       │   ├── <PieChart /> | <HeatmapChart />
+│   │   │       │   └── <DataTable />
+│   │   │       ├── <TransparencyDrawer />
+│   │   │       └── <FullscreenModal /> (conditional)
+│   │   └── <DropCell /> (×6 drop targets)
+│   └── <ErrorThread />
+│       └── <ErrorCard /> (per error in chat thread)
+├── <StatsPanelAccordion /> (mobile only)
 ├── <StatsPanel>
 │   ├── <LatencyBadge />
 │   ├── <ColumnStats /> (per column)
 │   └── <EmptyState />
-├── <ChatBar>
-│   ├── <TextInput />
-│   ├── <SubmitButton />
-│   └── <VoiceInputButton />
-└── <FullscreenModal />
+└── <ChatBar>
+    ├── <TextInput />
+    ├── <SubmitButton />
+    └── <VoiceInputButton />
 ```
 
 ### Key Interfaces (TypeScript)
@@ -192,6 +214,10 @@ interface ChatMessage {
   content: string;
   cardId?: string;
   timestamp: number;
+  /** HTTP status code for error messages (422, 503, 504, 408) */
+  statusCode?: number;
+  /** Original query text, stored on error messages for retry */
+  originalQuery?: string;
 }
 
 interface Bookmark {
@@ -200,6 +226,7 @@ interface Bookmark {
   savedAt: number;
   chatThread: ChatMessage[];
   cards: CardState[];
+  workspaceName: string;
 }
 
 interface ThreadSummary {

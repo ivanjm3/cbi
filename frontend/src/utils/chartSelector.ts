@@ -9,7 +9,7 @@ export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'table' | 'heatmap'
  * Selects the appropriate chart type for a given rendered output.
  *
  * Selection priority:
- * 1. Explicit `chart_type` from the backend response (pass-through)
+ * 1. Explicit `chart_type` from the backend response (pass-through, normalized)
  * 2. Text-only output → 'text'
  * 3. Inference from column metadata:
  *    - time-series + numeric → line
@@ -20,8 +20,16 @@ export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'table' | 'heatmap'
  *    - else → table (fallback)
  */
 export function selectChartType(renderedOutput: RenderedOutput): ChartType {
-  // 1. Explicit backend instruction
-  if (renderedOutput.chart_type) return renderedOutput.chart_type;
+  // 1. Explicit backend instruction (normalize known aliases)
+  if (renderedOutput.chart_type) {
+    const ct = renderedOutput.chart_type.toLowerCase();
+    if (ct === 'doughnut') return 'pie';
+    if (ct === 'bubble') return 'scatter';
+    if (ct === 'bar' || ct === 'line' || ct === 'scatter' || ct === 'pie' || ct === 'table' || ct === 'heatmap') {
+      return ct;
+    }
+    // Unknown chart type — fall through to inference or table
+  }
 
   // 2. Text-only response
   if (renderedOutput.output_type === 'text') return 'text';
@@ -42,6 +50,9 @@ export function selectChartType(renderedOutput: RenderedOutput): ChartType {
   )
     return 'pie';
   if (numericCols.length >= 3) return 'heatmap';
+
+  // If backend gave a chart_type but we don't have column metadata, trust it as table
+  if (renderedOutput.chart_type) return 'bar';
 
   return 'table'; // fallback
 }

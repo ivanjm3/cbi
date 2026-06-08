@@ -114,14 +114,14 @@ def print_all_time_report():
     print(f"Output Tokens:       {summary['total_output_tokens']:,}")
     print()
     
-    if summary['by_component']:
+    if summary['breakdown']:
         print("Breakdown by Component:")
         print("-" * 70)
         print(f"{'Component':<30} {'Calls':>10} {'Cost':>15}")
         print("-" * 70)
-        for item in summary['by_component']:
+        for item in summary['by_service']:
             print(
-                f"{item['component']:<30} "
+                f"{item['service']:<30} "
                 f"{item['calls']:>10} "
                 f"{format_cost(item['cost_usd']):>15}"
             )

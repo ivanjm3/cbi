@@ -287,9 +287,9 @@ class VisualizationRenderer:
     """
 
     def __init__(self, model_id: str | None = None):
-        from src.config import get_strands_bedrock_model
+        from src.config import DEFAULT_MODEL_ID, get_strands_bedrock_model
         from src.services.lru_cache import LRUCache
-
+        self._model_id = model_id or DEFAULT_MODEL_ID
         self._agent = Agent(
             system_prompt=VISUALIZER_SYSTEM_PROMPT,
             tools=[emit_chart],
@@ -398,14 +398,14 @@ class VisualizationRenderer:
         # Cost tracking
         try:
             from src.services.bedrock_wrapper import track_agent_invocation
-            from src.config import DEFAULT_MODEL_ID
+            
             track_agent_invocation(
                 component="visualization_renderer",
-                model_id=DEFAULT_MODEL_ID,
+                model_id=self._model_id,
                 response=agent_result,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Visualization cost tracking failed: {e}")
 
         agent_text = str(agent_result)
         chart_spec = self._extract_emit_chart(agent_text)

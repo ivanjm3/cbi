@@ -93,12 +93,16 @@ The React frontend at http://localhost:5173 provides a conversational BI interfa
 ### Key features
 
 - Charts auto-selected by data shape (line, bar, scatter, pie, heatmap, or table)
-- Pin cards to keep them across new queries
+- Pin cards to keep them across new queries; canvas-full notification when all pinned
+- Drag-and-drop card reordering; resize via corner handles (1×1 to 2×2 spans)
 - Export any card as PNG or CSV
+- Expand cards to fullscreen (close with Escape or button)
 - "How I got this" transparency drawer on each card
+- "Save Session" button with named bookmarks; load with unsaved-changes confirmation
 - Session auto-saved to localStorage; bookmarks persist across refreshes
 - Voice input via Web Speech API (Chrome/Edge)
-- Error cards with retry buttons for timeout/503 errors
+- Error cards with retry buttons for timeout/503/504 errors; inline 422 error display
+- Responsive layout: single-column canvas on narrow screens, stats accordion on mobile
 
 ### Frontend scripts
 

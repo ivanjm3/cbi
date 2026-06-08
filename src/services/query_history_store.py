@@ -82,6 +82,23 @@ class EmbeddingGenerator:
             )
             response_body = json.loads(response["body"].read())
             embedding = response_body.get("embedding")
+
+            # Track embedding generation cost
+            try:
+                from src.services.cost_tracker import get_cost_tracker
+                # Titan Embeddings: input tokens only (no output tokens billed)
+                # Estimate ~1 token per 4 chars for input text
+                estimated_input_tokens = max(1, len(text) // 4)
+                get_cost_tracker().log_invocation(
+                    model_id=self.model_id,
+                    component="query_history_embeddings",
+                    input_tokens=estimated_input_tokens,
+                    output_tokens=0,
+                    metadata={"source": "estimated", "text_length": len(text)},
+                )
+            except Exception:
+                pass  # Don't let cost tracking break embedding generation
+
             return embedding
         except Exception as e:
             logger.error(

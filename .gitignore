@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .hypothesis/
 logs/
+node_modules/
+.npm
+._*
+assets/

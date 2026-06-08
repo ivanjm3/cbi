@@ -244,6 +244,7 @@ class OrchestratorHub:
         self.agent_timeout = max(
             AGENT_TIMEOUT_MIN, min(agent_timeout, AGENT_TIMEOUT_MAX)
         )
+        self._model_id = model_id or DEFAULT_MODEL_ID
         # In-memory agent registry: agent_id -> AgentRegistration
         self._agents: dict[str, AgentRegistration] = {}
         # Correlation ID for the current request (set per-request)
@@ -383,9 +384,9 @@ class OrchestratorHub:
         from src.services.bedrock_wrapper import track_agent_invocation
         track_agent_invocation(
             component="orchestrator_hub",
-            model_id=model_id or DEFAULT_MODEL_ID,
+            model_id=self._model_id,
             response=result,
-            correlation_id=correlation_id,
+            correlation_id=self._current_correlation_id,
         )
 
         # Build response from accumulated dispatch results

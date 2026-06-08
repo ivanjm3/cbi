@@ -76,6 +76,11 @@ export interface ChatMessage {
   content: string;
   cardId?: string;
   timestamp: number;
+  /** HTTP status code for error messages (422, 503, 504, 408) */
+  statusCode?: number;
+  /** Original query text, stored on error messages for retry */
+  originalQuery?: string;
+}
 }
 
 // ---------------------------------------------------------------------------

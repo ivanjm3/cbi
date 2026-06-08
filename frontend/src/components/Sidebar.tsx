@@ -73,17 +73,17 @@ function ThreadList({ threads }: { threads: ThreadSummary[] }) {
 function BookmarkItem({
   bookmark,
   onDelete,
+  onLoad,
 }: {
   bookmark: Bookmark;
   onDelete: (id: string) => void;
+  onLoad: (id: string) => void;
 }) {
-  const loadBookmark = useSessionStore((s) => s.loadBookmark);
-
   return (
     <li className="group flex items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-gray-200 dark:hover:bg-gray-700">
       <button
         type="button"
-        onClick={() => loadBookmark(bookmark.id)}
+        onClick={() => onLoad(bookmark.id)}
         className="flex-1 min-w-0 text-left cursor-pointer"
         aria-label={`Load bookmark ${bookmark.name}`}
       >
@@ -122,9 +122,11 @@ function BookmarkItem({
 function BookmarkList({
   bookmarks,
   onDelete,
+  onLoad,
 }: {
   bookmarks: Bookmark[];
   onDelete: (id: string) => void;
+  onLoad: (id: string) => void;
 }) {
   if (bookmarks.length === 0) {
     return (
@@ -137,7 +139,7 @@ function BookmarkList({
   return (
     <ul className="space-y-1" role="list" aria-label="Bookmarks">
       {bookmarks.slice(0, 50).map((bookmark) => (
-        <BookmarkItem key={bookmark.id} bookmark={bookmark} onDelete={onDelete} />
+        <BookmarkItem key={bookmark.id} bookmark={bookmark} onDelete={onDelete} onLoad={onLoad} />
       ))}
     </ul>
   );
@@ -150,9 +152,12 @@ function BookmarkList({
 function SidebarContent({ onClose }: { onClose?: () => void }) {
   const threads = useSessionStore((s) => s.threads);
   const bookmarks = useSessionStore((s) => s.bookmarks);
+  const chatThread = useSessionStore((s) => s.chatThread);
   const deleteBookmark = useSessionStore((s) => s.deleteBookmark);
+  const loadBookmark = useSessionStore((s) => s.loadBookmark);
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingLoadId, setPendingLoadId] = useState<string | null>(null);
 
   const handleDeleteRequest = (id: string) => {
     setPendingDeleteId(id);
@@ -169,8 +174,33 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     setPendingDeleteId(null);
   };
 
+  // Bookmark load with unsaved-changes confirmation
+  const handleLoadRequest = (id: string) => {
+    // If there are unsaved changes (non-empty chat thread), prompt confirmation
+    if (chatThread.length > 0) {
+      setPendingLoadId(id);
+    } else {
+      loadBookmark(id);
+    }
+  };
+
+  const confirmLoad = () => {
+    if (pendingLoadId) {
+      loadBookmark(pendingLoadId);
+      setPendingLoadId(null);
+    }
+  };
+
+  const cancelLoad = () => {
+    setPendingLoadId(null);
+  };
+
   const pendingBookmark = pendingDeleteId
     ? bookmarks.find((b) => b.id === pendingDeleteId)
+    : null;
+
+  const pendingLoadBookmark = pendingLoadId
+    ? bookmarks.find((b) => b.id === pendingLoadId)
     : null;
 
   return (
@@ -215,7 +245,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           <h2 className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Bookmarks
           </h2>
-          <BookmarkList bookmarks={bookmarks} onDelete={handleDeleteRequest} />
+          <BookmarkList bookmarks={bookmarks} onDelete={handleDeleteRequest} onLoad={handleLoadRequest} />
         </div>
       </div>
 
@@ -252,6 +282,45 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Confirmation Modal (unsaved changes warning) */}
+      {pendingLoadId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm loading bookmark"
+        >
+          <div className="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Load Bookmark
+            </h3>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              You have unsaved changes in your current session. Loading{' '}
+              <span className="font-medium">
+                &ldquo;{pendingLoadBookmark?.name ?? 'this bookmark'}&rdquo;
+              </span>{' '}
+              will replace your current work. Continue?
+            </p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelLoad}
+                className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmLoad}
+                className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                Load
               </button>
             </div>
           </div>

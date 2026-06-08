@@ -268,7 +268,7 @@ This plan implements a React 18 + Vite + Tailwind CSS conversational BI frontend
     - Test bookmark save/load/delete cycle
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
-- [x] 10. Final checkpoint - All tests pass
+- [ ] 10. Final checkpoint - All tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

@@ -193,20 +193,27 @@ AI inference runs on Amazon Bedrock. The default LLM is Claude 3.5 Haiku; embedd
 **Stack:** React 18, Vite, TypeScript, Tailwind CSS, Recharts, react-dnd, zustand
 
 **Architecture:**
-- **App Shell** — Three-panel flex layout: Sidebar (260px) | Canvas (fluid) | StatsPanel (300px collapsible)
+- **App Shell** — Three-panel flex layout: TopBar | Sidebar (260px) | Canvas (fluid) | StatsPanel (300px collapsible)
+- **TopBar** — Logo, workspace name, "Save Session" button (opens SaveSessionModal for naming bookmarks)
 - **Chat Bar** — Fixed bottom input, submits to `POST /query`, displays streaming skeleton during API calls
-- **Canvas** — 2×3 CSS Grid with drag-and-drop card reordering via react-dnd, resize handles, pinning
+- **Canvas** — 2×3 CSS Grid with DndProvider (react-dnd), DraggableCard wrappers, DropCell targets, ErrorThread for inline error display
 - **VisualizationCard** — Composes ChartRenderer (Recharts), CardToolbar, TransparencyDrawer, FullscreenModal
-- **StatsPanel** — Displays per-column statistics from the card's metadata
-- **Sidebar** — Chat thread history, bookmarks with save/load/delete, "New Chat" button
+- **ErrorCard** — Inline error display for 422/503/504/408 errors with retry buttons for retryable failures
+- **StatsPanel** — Displays per-column statistics from the card's metadata; accordion mode on mobile
+- **Sidebar** — Chat thread history, bookmarks with save/load/delete (with unsaved-changes confirmation), "New Chat" button
 - **Session Store** — zustand with localStorage persistence for session state, bookmarks, layout
 
 **Key behaviors:**
 - Auto-selects chart type (line/bar/scatter/pie/heatmap/table) from column metadata
 - Pinned cards survive new query additions; oldest unpinned card replaced when canvas is full
-- Error cards with retry buttons for 503/504 and timeout errors
+- Canvas-full notification when all 6 cards are pinned (prompts user to unpin or remove)
+- Error cards with retry buttons for 503/504 and timeout errors; 422 errors show message inline
 - CSV/PNG export from card toolbar
+- "How I got this" transparency drawer on each card
+- Session auto-saved to localStorage; bookmarks with named save, load (unsaved-changes confirmation), and delete
 - Voice input via Web Speech API (progressive enhancement)
+- Fullscreen modal for expanded chart viewing (close via Escape or button)
+- Responsive: single-column canvas on narrow screens, stats accordion on mobile
 
 **API contract consumed:**
 - `POST http://localhost:8001/query` — body: `{ "query_text": "..." }`

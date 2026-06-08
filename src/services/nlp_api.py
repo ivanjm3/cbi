@@ -149,6 +149,18 @@ def _check_input_guardrails_bedrock(query_text: str) -> dict | None:
             source="INPUT",
             content=[{"text": {"text": query_text}}],
         )
+
+        # Track input guardrail cost
+        try:
+            from src.services.cost_tracker import get_cost_tracker
+            get_cost_tracker().log_guardrail_invocation(
+                component="nlp_api_input_guardrail",
+                text_length_chars=len(query_text),
+                action=result.get("action", "NONE"),
+            )
+        except Exception:
+            pass  # Don't let cost tracking break guardrails
+
         if result.get("action") == "GUARDRAIL_INTERVENED":
             outputs = result.get("outputs", [])
             message = outputs[0].get("text", "Content blocked") if outputs else "Content policy violation"
