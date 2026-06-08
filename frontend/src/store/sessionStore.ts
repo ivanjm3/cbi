@@ -1,10 +1,10 @@
 /**
  * Zustand Session Store with localStorage persistence.
  *
- * Manages canvas layout, chat thread, bookmarks, and UI state.
- * Persists to localStorage with debounced writes and graceful error handling.
+ * Manages chat thread, visualization cards, sidebar, panels, and saved prompts.
+ * Persists to localStorage with graceful error handling for quota and corruption.
  *
- * Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8
+ * Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6
  */
 
 import { create } from 'zustand';
@@ -13,18 +13,21 @@ import type {
   SessionState,
   CardState,
   ChatMessage,
-  Bookmark,
   ThreadSummary,
+  SavedPrompt,
+  TransparencyData,
 } from '../types';
 import { queryBackend } from '../api/queryApi';
-import { nextPosition } from '../utils/gridHelpers';
+import { parseUserRequestedChartType } from '../utils/chartSelector';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const SESSION_STORAGE_KEY = 'cbi-session';
-const BOOKMARKS_STORAGE_KEY = 'cbi-bookmarks';
+const SAVED_PROMPTS_STORAGE_KEY = 'cbi-saved-prompts';
+const MAX_SAVED_PROMPTS = 50;
+const MAX_CHAT_HISTORY = 50;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,23 +37,10 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
-/**
- * Find the oldest unpinned card in the list.
- * Returns the card with the earliest createdAt that is not pinned.
- */
-function findOldestUnpinned(cards: CardState[]): CardState | undefined {
-  return cards
-    .filter((c) => !c.pinned)
-    .sort((a, b) => a.createdAt - b.createdAt)[0];
-}
-
 // ---------------------------------------------------------------------------
 // localStorage error-safe storage adapter
 // ---------------------------------------------------------------------------
 
-/**
- * Safely access localStorage. Returns null if unavailable (SSR, private browsing, etc.)
- */
 function getStorage(): Storage | null {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -63,10 +53,21 @@ function getStorage(): Storage | null {
 }
 
 /**
+ * Persisted state subset — excludes actions and transient flags like `loading`.
+ */
+type PersistedState = {
+  chatThread: ChatMessage[];
+  cards: Record<string, CardState>;
+  activeCardId: string | null;
+  chatHistory: ThreadSummary[];
+  savedPrompts: SavedPrompt[];
+  sidebarCollapsed: boolean;
+  traceabilityPanelVisible: boolean;
+  statsPanelCollapsed: boolean;
+};
+
+/**
  * Custom storage adapter that handles quota exceeded and corrupted data errors.
- * - Quota exceeded: logs warning, continues with in-memory state
- * - Corrupted data: logs warning, returns null (starts fresh)
- * - localStorage unavailable: operates in memory-only mode
  */
 function createSafeStorage(): PersistStorage<PersistedState> {
   return {
@@ -83,7 +84,6 @@ function createSafeStorage(): PersistStorage<PersistedState> {
           `[cbi-store] Corrupted localStorage data for key "${name}". Starting fresh.`,
           e,
         );
-        // Remove corrupted data
         try {
           storage.removeItem(name);
         } catch {
@@ -97,8 +97,11 @@ function createSafeStorage(): PersistStorage<PersistedState> {
       if (!storage) return;
       try {
         storage.setItem(name, JSON.stringify(value));
-      } catch (e: any) {
-        if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+      } catch (e: unknown) {
+        if (
+          e instanceof DOMException &&
+          (e.name === 'QuotaExceededError' || e.code === 22)
+        ) {
           console.warn(
             '[cbi-store] localStorage quota exceeded. Continuing with in-memory state.',
           );
@@ -120,22 +123,22 @@ function createSafeStorage(): PersistStorage<PersistedState> {
 }
 
 // ---------------------------------------------------------------------------
-// Bookmarks localStorage helpers (separate key)
+// Saved Prompts localStorage helpers (separate key)
 // ---------------------------------------------------------------------------
 
-function loadBookmarksFromStorage(): Bookmark[] {
+function loadSavedPromptsFromStorage(): SavedPrompt[] {
   const storage = getStorage();
   if (!storage) return [];
   try {
-    const raw = storage.getItem(BOOKMARKS_STORAGE_KEY);
+    const raw = storage.getItem(SAVED_PROMPTS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed;
   } catch (e) {
-    console.warn('[cbi-store] Corrupted bookmarks data. Starting fresh.', e);
+    console.warn('[cbi-store] Corrupted saved prompts data. Starting fresh.', e);
     try {
-      storage.removeItem(BOOKMARKS_STORAGE_KEY);
+      storage.removeItem(SAVED_PROMPTS_STORAGE_KEY);
     } catch {
       // Ignore
     }
@@ -143,34 +146,24 @@ function loadBookmarksFromStorage(): Bookmark[] {
   }
 }
 
-function saveBookmarksToStorage(bookmarks: Bookmark[]): void {
+function saveSavedPromptsToStorage(prompts: SavedPrompt[]): void {
   const storage = getStorage();
   if (!storage) return;
   try {
-    storage.setItem(BOOKMARKS_STORAGE_KEY, JSON.stringify(bookmarks));
-  } catch (e: any) {
-    if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+    storage.setItem(SAVED_PROMPTS_STORAGE_KEY, JSON.stringify(prompts));
+  } catch (e: unknown) {
+    if (
+      e instanceof DOMException &&
+      (e.name === 'QuotaExceededError' || e.code === 22)
+    ) {
       console.warn(
-        '[cbi-store] localStorage quota exceeded when saving bookmarks. Bookmarks remain in memory only.',
+        '[cbi-store] localStorage quota exceeded when saving prompts.',
       );
     } else {
-      console.warn('[cbi-store] Failed to save bookmarks to localStorage.', e);
+      console.warn('[cbi-store] Failed to save prompts to localStorage.', e);
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Persisted state subset (what gets written to localStorage)
-// ---------------------------------------------------------------------------
-
-type PersistedState = {
-  cards: CardState[];
-  activeCardId: string | null;
-  chatThread: ChatMessage[];
-  threads: ThreadSummary[];
-  statsPanelCollapsed: boolean;
-  workspaceName: string;
-};
 
 // ---------------------------------------------------------------------------
 // Store creation
@@ -180,14 +173,15 @@ export const useSessionStore = create<SessionState>()(
   persist(
     (set, get) => ({
       // ----- Initial state -----
-      cards: [],
-      activeCardId: null,
       chatThread: [],
-      threads: [],
-      bookmarks: loadBookmarksFromStorage(),
+      cards: {},
+      activeCardId: null,
+      chatHistory: [],
+      savedPrompts: loadSavedPromptsFromStorage(),
+      sidebarCollapsed: false,
+      traceabilityPanelVisible: false,
       statsPanelCollapsed: false,
       loading: false,
-      workspaceName: 'Untitled Workspace',
 
       // ----- Actions -----
 
@@ -208,101 +202,62 @@ export const useSessionStore = create<SessionState>()(
           const result = await queryBackend(queryText);
 
           if (result.ok) {
-            // Validate that result.data has required fields
-            if (!result.data || typeof result.data !== 'object') {
-              const errorMessage: ChatMessage = {
-                id: generateId(),
-                role: 'error',
-                content: 'Received an invalid response from the server.',
-                timestamp: Date.now(),
-                originalQuery: queryText,
-              };
-              set({
-                chatThread: [...get().chatThread, errorMessage],
-                loading: false,
-              });
-              return;
-            }
+            const renderedOutput = result.data;
+            const cardId = generateId();
 
-            // Ensure required fields have defaults
-            const renderedOutput = {
-              output_type: result.data.output_type ?? 'text',
-              chart_type: result.data.chart_type ?? null,
-              chart_data: result.data.chart_data ?? null,
-              text_content: result.data.text_content ?? null,
-              description: result.data.description ?? 'Query completed.',
-              metadata: result.data.metadata ?? { query_id: generateId(), query_type: 'unknown' },
-            } as typeof result.data;
+            // Parse user-requested chart type from the query
+            const userRequestedChartType = parseUserRequestedChartType(queryText);
+
+            // Build transparency data from metadata
+            const metadata = renderedOutput.metadata;
+            const transparencyData: TransparencyData = {
+              queryRewrite: renderedOutput.description ?? null,
+              structuredIntent: metadata
+                ? {
+                    query_id: metadata.query_id,
+                    query_type: metadata.query_type,
+                    entity_refs: metadata.entity_refs ?? [],
+                    routing_metadata: metadata.routing_metadata ?? {},
+                    timestamp: metadata.timestamp ?? new Date().toISOString(),
+                  }
+                : null,
+              apiCallSummary: metadata?.data_sources
+                ? {
+                    agents: metadata.data_sources.map((ds) => ({
+                      id: ds,
+                      dataSources: [ds],
+                      status: 'success' as const,
+                    })),
+                  }
+                : null,
+            };
+
+            const newCard: CardState = {
+              id: cardId,
+              query: queryText,
+              userRequestedChartType,
+              renderedOutput,
+              transparencyData,
+              pinned: false,
+              width: '100%',
+              createdAt: Date.now(),
+            };
+
+            const systemMessage: ChatMessage = {
+              id: generateId(),
+              role: 'system',
+              content: renderedOutput.description,
+              cardId,
+              timestamp: Date.now(),
+            };
 
             const state = get();
-            const position = nextPosition(state.cards);
-            let newCards = [...state.cards];
-
-            if (position) {
-              // Grid has space - place the new card
-              const newCard: CardState = {
-                id: generateId(),
-                query: queryText,
-                renderedOutput: renderedOutput,
-                gridPosition: position,
-                gridSize: { colSpan: 1, rowSpan: 1 },
-                pinned: false,
-                bookmarked: false,
-                createdAt: Date.now(),
-              };
-              newCards.push(newCard);
-
-              const systemMessage: ChatMessage = {
-                id: generateId(),
-                role: 'system',
-                content: renderedOutput.description,
-                cardId: newCard.id,
-                timestamp: Date.now(),
-              };
-
-              set({
-                cards: newCards,
-                chatThread: [...get().chatThread, systemMessage],
-                activeCardId: newCard.id,
-                loading: false,
-              });
-            } else {
-              // Canvas full - try to replace oldest unpinned card
-              const oldest = findOldestUnpinned(state.cards);
-              if (oldest) {
-                const newCard: CardState = {
-                  id: generateId(),
-                  query: queryText,
-                  renderedOutput: renderedOutput,
-                  gridPosition: oldest.gridPosition,
-                  gridSize: { colSpan: 1, rowSpan: 1 },
-                  pinned: false,
-                  bookmarked: false,
-                  createdAt: Date.now(),
-                };
-                newCards = newCards.filter((c) => c.id !== oldest.id);
-                newCards.push(newCard);
-
-                const systemMessage: ChatMessage = {
-                  id: generateId(),
-                  role: 'system',
-                  content: renderedOutput.description,
-                  cardId: newCard.id,
-                  timestamp: Date.now(),
-                };
-
-                set({
-                  cards: newCards,
-                  chatThread: [...get().chatThread, systemMessage],
-                  activeCardId: newCard.id,
-                  loading: false,
-                });
-              } else {
-                // All cards pinned - cannot replace, just stop loading
-                // (notification handled by UI layer)
-                set({ loading: false });
-              }
-            }
+            set({
+              cards: { ...state.cards, [cardId]: newCard },
+              chatThread: [...state.chatThread, systemMessage],
+              activeCardId: cardId,
+              loading: false,
+            });
           } else {
             // API error
             const errorMessage: ChatMessage = {
@@ -321,11 +276,14 @@ export const useSessionStore = create<SessionState>()(
               loading: false,
             });
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           const errorMessage: ChatMessage = {
             id: generateId(),
             role: 'error',
-            content: err?.message ?? 'An unexpected error occurred',
+            content:
+              err instanceof Error
+                ? err.message
+                : 'An unexpected error occurred',
             timestamp: Date.now(),
             originalQuery: queryText,
           };
@@ -337,154 +295,165 @@ export const useSessionStore = create<SessionState>()(
         }
       },
 
-      addCard: (card: CardState) => {
-        const state = get();
-        const position = nextPosition(state.cards);
-
-        if (position) {
-          set({ cards: [...state.cards, { ...card, gridPosition: position }] });
-        } else {
-          // Canvas full - replace oldest unpinned
-          const oldest = findOldestUnpinned(state.cards);
-          if (oldest) {
-            const updatedCards = state.cards.filter((c) => c.id !== oldest.id);
-            set({ cards: [...updatedCards, { ...card, gridPosition: oldest.gridPosition }] });
-          }
-          // If all pinned, do nothing (notification handled elsewhere)
-        }
-      },
-
-      removeCard: (id: string) => {
-        const state = get();
-        const newCards = state.cards.filter((c) => c.id !== id);
-        const newActiveId = state.activeCardId === id ? null : state.activeCardId;
-        set({ cards: newCards, activeCardId: newActiveId });
-      },
-
-      moveCard: (id: string, position: { col: number; row: number }) => {
-        set({
-          cards: get().cards.map((c) =>
-            c.id === id ? { ...c, gridPosition: position } : c,
-          ),
-        });
-      },
-
-      resizeCard: (id: string, size: { colSpan: 1 | 2; rowSpan: 1 | 2 }) => {
-        set({
-          cards: get().cards.map((c) =>
-            c.id === id ? { ...c, gridSize: size } : c,
-          ),
-        });
+      setActiveCard: (id: string | null) => {
+        set({ activeCardId: id });
       },
 
       pinCard: (id: string) => {
+        const state = get();
+        const card = state.cards[id];
+        if (!card) return;
         set({
-          cards: get().cards.map((c) =>
-            c.id === id ? { ...c, pinned: true } : c,
-          ),
+          cards: { ...state.cards, [id]: { ...card, pinned: true } },
         });
       },
 
       unpinCard: (id: string) => {
+        const state = get();
+        const card = state.cards[id];
+        if (!card) return;
         set({
-          cards: get().cards.map((c) =>
-            c.id === id ? { ...c, pinned: false } : c,
-          ),
+          cards: { ...state.cards, [id]: { ...card, pinned: false } },
         });
       },
 
-      setActiveCard: (id: string | null) => {
-        set({ activeCardId: id });
+      resizeCard: (id: string, width: '50%' | '100%') => {
+        const state = get();
+        const card = state.cards[id];
+        if (!card) return;
+        set({
+          cards: { ...state.cards, [id]: { ...card, width } },
+        });
+      },
+
+      reorderCard: (id: string, newIndex: number) => {
+        const state = get();
+        // Find the system message associated with this card
+        const chatThread = [...state.chatThread];
+        const currentIndex = chatThread.findIndex(
+          (msg) => msg.cardId === id,
+        );
+        if (currentIndex === -1) return;
+
+        // Clamp newIndex to valid range
+        const clampedIndex = Math.max(
+          0,
+          Math.min(newIndex, chatThread.length - 1),
+        );
+        if (clampedIndex === currentIndex) return;
+
+        // Check if target position is a pinned card — reject if so
+        const targetMsg = chatThread[clampedIndex];
+        if (targetMsg?.cardId && state.cards[targetMsg.cardId]?.pinned) {
+          return; // Reject drop on pinned card position
+        }
+
+        // Remove the message from its current position and insert at new position
+        const [message] = chatThread.splice(currentIndex, 1);
+        chatThread.splice(clampedIndex, 0, message);
+
+        set({ chatThread });
+      },
+
+      toggleSidebar: () => {
+        set({ sidebarCollapsed: !get().sidebarCollapsed });
+      },
+
+      toggleTraceabilityPanel: () => {
+        set({ traceabilityPanelVisible: !get().traceabilityPanelVisible });
       },
 
       toggleStatsPanel: () => {
         set({ statsPanelCollapsed: !get().statsPanelCollapsed });
       },
 
-      toggleCardBookmark: (id: string) => {
-        set({
-          cards: get().cards.map((c) =>
-            c.id === id ? { ...c, bookmarked: !c.bookmarked } : c,
-          ),
-        });
-      },
-
-      saveBookmark: (name: string) => {
+      saveSavedPrompt: (name: string) => {
         const state = get();
-        const bookmark: Bookmark = {
+        const finalName = name.slice(0, 100);
+
+        const savedPrompt: SavedPrompt = {
           id: generateId(),
-          name: name.slice(0, 100),
+          name: finalName,
           savedAt: Date.now(),
           chatThread: [...state.chatThread],
-          cards: [...state.cards],
-          workspaceName: state.workspaceName,
+          cards: Object.values(state.cards),
         };
 
-        const newBookmarks = [bookmark, ...state.bookmarks].slice(0, 50);
-        set({ bookmarks: newBookmarks });
-        saveBookmarksToStorage(newBookmarks);
+        const newSavedPrompts = [savedPrompt, ...state.savedPrompts].slice(
+          0,
+          MAX_SAVED_PROMPTS,
+        );
+        set({ savedPrompts: newSavedPrompts });
+        saveSavedPromptsToStorage(newSavedPrompts);
       },
 
-      loadBookmark: (id: string) => {
+      loadSavedPrompt: (id: string) => {
         const state = get();
-        const bookmark = state.bookmarks.find((b) => b.id === id);
-        if (!bookmark) return;
+        const prompt = state.savedPrompts.find((p) => p.id === id);
+        if (!prompt) return;
+
+        // Restore session from saved prompt
+        const cardsRecord: Record<string, CardState> = {};
+        for (const card of prompt.cards) {
+          cardsRecord[card.id] = card;
+        }
 
         set({
-          chatThread: [...bookmark.chatThread],
-          cards: [...bookmark.cards],
+          chatThread: [...prompt.chatThread],
+          cards: cardsRecord,
           activeCardId: null,
-          workspaceName: bookmark.workspaceName,
+          loading: false,
         });
       },
 
-      deleteBookmark: (id: string) => {
+      deleteSavedPrompt: (id: string) => {
         const state = get();
-        const newBookmarks = state.bookmarks.filter((b) => b.id !== id);
-        set({ bookmarks: newBookmarks });
-        saveBookmarksToStorage(newBookmarks);
+        const newSavedPrompts = state.savedPrompts.filter((p) => p.id !== id);
+        set({ savedPrompts: newSavedPrompts });
+        saveSavedPromptsToStorage(newSavedPrompts);
       },
 
       startNewChat: () => {
         const state = get();
-        // Save current thread as a history entry if it has messages OR cards
-        const newThreads = [...state.threads];
-        if (state.chatThread.length > 0 || state.cards.length > 0) {
-          const firstUserMsg = state.chatThread.find((m) => m.role === 'user');
+        // Save current thread as history if it has messages
+        const newHistory = [...state.chatHistory];
+        if (state.chatThread.length > 0) {
+          const firstUserMsg = state.chatThread.find(
+            (m) => m.role === 'user',
+          );
           const summary: ThreadSummary = {
             id: generateId(),
-            firstMessage: firstUserMsg?.content ?? state.cards[0]?.query ?? 'New conversation',
+            firstMessage:
+              firstUserMsg?.content ?? 'New conversation',
             lastActivity: Date.now(),
             messageCount: state.chatThread.length,
           };
-          newThreads.unshift(summary);
-          // Keep max 50 threads
-          if (newThreads.length > 50) newThreads.pop();
+          newHistory.unshift(summary);
+          if (newHistory.length > MAX_CHAT_HISTORY) newHistory.pop();
         }
 
-        // Clear everything for a completely blank workspace
         set({
           chatThread: [],
-          cards: [],
+          cards: {},
           activeCardId: null,
-          threads: newThreads,
+          chatHistory: newHistory,
           loading: false,
         });
       },
     }),
     {
       name: SESSION_STORAGE_KEY,
+      version: 2,
       storage: createSafeStorage(),
-      // Debounce persistence to within 1 second
-      // zustand persist middleware writes synchronously, so we don't need extra debounce
-      // since the middleware handles it. However, we can use partialize to reduce storage size.
       partialize: (state): PersistedState => ({
+        chatThread: state.chatThread,
         cards: state.cards,
         activeCardId: state.activeCardId,
-        chatThread: state.chatThread,
-        threads: state.threads,
+        chatHistory: state.chatHistory,
+        savedPrompts: state.savedPrompts,
+        sidebarCollapsed: state.sidebarCollapsed,
+        traceabilityPanelVisible: state.traceabilityPanelVisible,
         statsPanelCollapsed: state.statsPanelCollapsed,
-        workspaceName: state.workspaceName,
       }),
     },
   ),

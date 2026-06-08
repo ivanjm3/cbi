@@ -7,3 +7,4 @@ node_modules/
 .npm
 ._*
 assets/
+.vscode/

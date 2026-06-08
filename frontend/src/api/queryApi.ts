@@ -8,17 +8,10 @@ import type { RenderedOutput } from '../types';
 export const API_BASE = 'http://localhost:8001';
 export const TIMEOUT_MS = 120_000;
 
-/** Error shape returned by the backend on non-200 responses */
-export interface ApiError {
-  error_message?: string;
-  error_code?: string;
-  query_id?: string;
-}
-
 /** Discriminated union for query results */
 export type QueryResult =
   | { ok: true; data: RenderedOutput; latencyMs: number }
-  | { ok: false; status: number; error: ApiError; latencyMs?: number };
+  | { ok: false; status: number; error: { error_message?: string; [key: string]: unknown }; latencyMs?: number };
 
 /**
  * Send a query to the backend NLP translator.
@@ -50,15 +43,15 @@ export async function queryBackend(queryText: string): Promise<QueryResult> {
       return {
         ok: false,
         status: response.status,
-        error: data as ApiError,
+        error: data as { error_message?: string; [key: string]: unknown },
         latencyMs: elapsed,
       };
     }
 
     return {
       ok: true,
-      data: data.rendered_output ?? data,
-      latencyMs: data.rendered_output?.metadata?.latency_ms ?? data.metadata?.latency_ms ?? elapsed,
+      data: data.rendered_output as RenderedOutput,
+      latencyMs: data.rendered_output?.metadata?.latency_ms ?? elapsed,
     };
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -74,76 +67,31 @@ export async function queryBackend(queryText: string): Promise<QueryResult> {
   }
 }
 
-/** Response shape for the sessions endpoint */
-export interface SessionResponse {
-  id: string;
-  chat_thread: Array<{
-    id: string;
-    role: 'user' | 'system' | 'error';
-    content: string;
-    card_id?: string;
-    timestamp: number;
-  }>;
-  cards: Array<{
-    id: string;
-    query: string;
-    rendered_output: RenderedOutput;
-    grid_position: { col: number; row: number };
-    grid_size: { col_span: 1 | 2; row_span: 1 | 2 };
-    pinned: boolean;
-    bookmarked: boolean;
-    created_at: number;
-  }>;
-  workspace_name?: string;
-}
-
-/** Result type for fetchSession */
-export type SessionResult =
-  | { ok: true; data: SessionResponse }
-  | { ok: false; status: number; error: ApiError };
-
 /**
  * Fetch a server-persisted session by ID.
- * Used when restoring a bookmarked session that references a server session.
+ * Used when restoring a saved prompt that references a server session.
  *
- * - 60-second timeout via AbortController
- * - Returns the session payload on success
- * - Returns error information on failure
+ * Returns the response data on success, or null on any error.
  */
-export async function fetchSession(sessionId: string): Promise<SessionResult> {
+export async function fetchSession(id: string): Promise<unknown | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}`, {
+    const response = await fetch(`${API_BASE}/sessions/${encodeURIComponent(id)}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       signal: controller.signal,
     });
 
-    const data = await response.json();
-
     if (!response.ok) {
-      return {
-        ok: false,
-        status: response.status,
-        error: data as ApiError,
-      };
+      return null;
     }
 
-    return {
-      ok: true,
-      data: data as SessionResponse,
-    };
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return {
-        ok: false,
-        status: 408,
-        error: { error_message: 'Request timed out after 60s' },
-      };
-    }
-    throw err;
+    const data = await response.json();
+    return data;
+  } catch {
+    return null;
   } finally {
     clearTimeout(timeoutId);
   }

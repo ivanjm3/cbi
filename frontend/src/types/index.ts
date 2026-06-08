@@ -2,8 +2,31 @@
  * Core TypeScript interfaces for the Conversational BI Frontend.
  *
  * These mirror the backend response contract and define the client-side
- * state shapes used throughout the application.
+ * state shapes used throughout the application. The layout is a
+ * conversational chat thread with inline visualization cards (no grid).
  */
+
+// ---------------------------------------------------------------------------
+// Chart types
+// ---------------------------------------------------------------------------
+
+/** Supported chart visualization types */
+export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'table' | 'heatmap';
+
+/** Known chart type keywords for user prompt parsing */
+export const CHART_TYPE_KEYWORDS: Record<string, ChartType> = {
+  'bar chart': 'bar',
+  'bar graph': 'bar',
+  'line chart': 'line',
+  'line graph': 'line',
+  'scatter plot': 'scatter',
+  'scatter chart': 'scatter',
+  'pie chart': 'pie',
+  'pie graph': 'pie',
+  'heatmap': 'heatmap',
+  'heat map': 'heatmap',
+  'table': 'table',
+};
 
 // ---------------------------------------------------------------------------
 // Backend response types
@@ -28,6 +51,8 @@ export interface MetaPayload {
   columns?: ColumnMeta[];
   timestamp?: string;
   data_sources?: string[];
+  entity_refs?: string[];
+  routing_metadata?: Record<string, unknown>;
 }
 
 /** Per-column statistics provided in MetaPayload */
@@ -50,19 +75,26 @@ export interface ColumnMeta {
 }
 
 // ---------------------------------------------------------------------------
-// Canvas and card state
+// Transparency / Traceability
 // ---------------------------------------------------------------------------
 
-/** State of a single visualization card on the canvas */
-export interface CardState {
-  id: string;
-  query: string;
-  renderedOutput: RenderedOutput;
-  gridPosition: { col: number; row: number };
-  gridSize: { colSpan: 1 | 2; rowSpan: 1 | 2 };
-  pinned: boolean;
-  bookmarked: boolean;
-  createdAt: number;
+/** Transparency data for the Traceability Panel */
+export interface TransparencyData {
+  queryRewrite: string | null;
+  structuredIntent: {
+    query_id: string;
+    query_type: string;
+    entity_refs: string[];
+    routing_metadata: Record<string, unknown>;
+    timestamp: string;
+  } | null;
+  apiCallSummary: {
+    agents: Array<{
+      id: string;
+      dataSources: string[];
+      status: 'success' | 'error' | 'timeout';
+    }>;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,29 +113,71 @@ export interface ChatMessage {
   /** Original query text, stored on error messages for retry */
   originalQuery?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Card state (inline in chat thread, no grid positions)
+// ---------------------------------------------------------------------------
+
+/** State of a single visualization card inline in the chat thread */
+export interface CardState {
+  id: string;
+  query: string;
+  userRequestedChartType?: ChartType | null;
+  renderedOutput: RenderedOutput;
+  transparencyData: TransparencyData;
+  pinned: boolean;
+  width: '50%' | '100%';
+  createdAt: number;
 }
 
 // ---------------------------------------------------------------------------
-// Bookmarks
+// Session store
 // ---------------------------------------------------------------------------
 
-/** Session-level bookmark (saves entire workspace state) */
-export interface Bookmark {
+/** Full session store shape (zustand state + actions) */
+export interface SessionState {
+  // Chat thread
+  chatThread: ChatMessage[];
+  cards: Record<string, CardState>;
+  activeCardId: string | null;
+
+  // Sidebar
+  chatHistory: ThreadSummary[];
+  savedPrompts: SavedPrompt[];
+  sidebarCollapsed: boolean;
+
+  // Panels
+  traceabilityPanelVisible: boolean;
+  statsPanelCollapsed: boolean;
+  loading: boolean;
+
+  // Actions
+  submitQuery: (queryText: string) => Promise<void>;
+  setActiveCard: (id: string | null) => void;
+  pinCard: (id: string) => void;
+  unpinCard: (id: string) => void;
+  resizeCard: (id: string, width: '50%' | '100%') => void;
+  reorderCard: (id: string, newIndex: number) => void;
+  toggleSidebar: () => void;
+  toggleTraceabilityPanel: () => void;
+  toggleStatsPanel: () => void;
+  saveSavedPrompt: (name: string) => void;
+  loadSavedPrompt: (id: string) => void;
+  deleteSavedPrompt: (id: string) => void;
+  startNewChat: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Saved Prompts
+// ---------------------------------------------------------------------------
+
+/** A saved prompt (formerly bookmark) preserving full session state */
+export interface SavedPrompt {
   id: string;
   name: string;
   savedAt: number;
   chatThread: ChatMessage[];
   cards: CardState[];
-  workspaceName: string;
-}
-
-/** Per-card bookmark (bookmarks an individual card result) */
-export interface CardBookmark {
-  id: string;
-  cardId: string;
-  query: string;
-  chartType: string | null;
-  savedAt: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,43 +190,4 @@ export interface ThreadSummary {
   firstMessage: string;
   lastActivity: number;
   messageCount: number;
-}
-
-// ---------------------------------------------------------------------------
-// Session store
-// ---------------------------------------------------------------------------
-
-/** Full session store shape (zustand state + actions) */
-export interface SessionState {
-  // Canvas
-  cards: CardState[];
-  activeCardId: string | null;
-
-  // Chat
-  chatThread: ChatMessage[];
-
-  // Sidebar
-  threads: ThreadSummary[];
-  bookmarks: Bookmark[];
-
-  // UI state
-  statsPanelCollapsed: boolean;
-  loading: boolean;
-  workspaceName: string;
-
-  // Actions
-  submitQuery: (queryText: string) => Promise<void>;
-  addCard: (card: CardState) => void;
-  removeCard: (id: string) => void;
-  moveCard: (id: string, position: { col: number; row: number }) => void;
-  resizeCard: (id: string, size: { colSpan: 1 | 2; rowSpan: 1 | 2 }) => void;
-  pinCard: (id: string) => void;
-  unpinCard: (id: string) => void;
-  setActiveCard: (id: string | null) => void;
-  toggleStatsPanel: () => void;
-  toggleCardBookmark: (id: string) => void;
-  saveBookmark: (name: string) => void;
-  loadBookmark: (id: string) => void;
-  deleteBookmark: (id: string) => void;
-  startNewChat: () => void;
 }

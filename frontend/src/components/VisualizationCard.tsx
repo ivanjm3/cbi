@@ -30,11 +30,16 @@ export interface VisualizationCardProps {
  */
 function UserMessage({ query }: { query: string }) {
   return (
-    <div className="flex items-start gap-2 mb-3">
-      <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+    <div className="flex items-start gap-3 mb-4">
+      <div 
+        className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-600/20 border border-cyan-500/30 flex items-center justify-center backdrop-blur-sm"
+        style={{
+          boxShadow: '0 0 20px rgba(6, 182, 212, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.1)'
+        }}
+      >
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="h-4 w-4 text-blue-600 dark:text-blue-300"
+          className="h-4 w-4 text-cyan-400"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -47,9 +52,18 @@ function UserMessage({ query }: { query: string }) {
           />
         </svg>
       </div>
-      <p className="text-sm text-gray-800 dark:text-gray-200 pt-1 leading-snug">
-        {query}
-      </p>
+      <div className="flex-1 pt-1">
+        <p 
+          className="text-sm text-slate-200 leading-relaxed tracking-wide"
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontWeight: 400,
+            letterSpacing: '0.01em'
+          }}
+        >
+          {query}
+        </p>
+      </div>
     </div>
   );
 }
@@ -106,24 +120,40 @@ export function VisualizationCard({ card }: VisualizationCardProps) {
       onFocus={handleFocusActivate}
       onKeyDown={handleKeyDown}
       className={`
-        relative flex flex-col rounded-lg border bg-white dark:bg-gray-900
-        shadow-sm transition-shadow duration-150
+        group relative flex flex-col rounded-2xl border bg-slate-900/60 backdrop-blur-xl
+        shadow-2xl transition-all duration-300 overflow-hidden animate-fade-in-up
         ${isActive
-          ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-800 shadow-md'
-          : 'border-gray-200 dark:border-gray-700 hover:shadow-md'
+          ? 'border-cyan-500/60 ring-2 ring-cyan-500/30 shadow-cyan-500/20'
+          : 'border-slate-700/50 hover:border-slate-600/60 hover:shadow-slate-800/40'
         }
       `}
+      style={{
+        boxShadow: isActive 
+          ? '0 20px 40px rgba(6, 182, 212, 0.15), 0 8px 16px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.05)'
+          : '0 8px 24px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.03)'
+      }}
     >
-      {/* Pinned indicator */}
+      {/* Subtle gradient overlay for depth */}
+      <div 
+        className="absolute inset-0 opacity-30 pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle at 20% 20%, rgba(6, 182, 212, 0.08) 0%, transparent 60%)'
+        }}
+      />
+
+      {/* Pinned indicator with amber glow */}
       {card.pinned && (
         <div
-          className="absolute top-2 right-2 text-amber-500 dark:text-amber-400"
+          className="absolute top-4 right-4 z-30 text-amber-400"
           title="Pinned"
           aria-label="Card is pinned"
+          style={{
+            filter: 'drop-shadow(0 0 8px rgba(245, 158, 11, 0.6))'
+          }}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className="h-4 w-4"
+            className="h-5 w-5"
             fill="currentColor"
             viewBox="0 0 24 24"
           >
@@ -132,8 +162,8 @@ export function VisualizationCard({ card }: VisualizationCardProps) {
         </div>
       )}
 
-      {/* Card content */}
-      <div className="p-4 flex flex-col gap-2 flex-1 min-h-0">
+      {/* Card content with generous padding */}
+      <div className="relative z-10 p-6 flex flex-col gap-3 flex-1 min-h-0">
         {/* User message in conversational format */}
         <UserMessage query={card.query} />
 
@@ -143,8 +173,14 @@ export function VisualizationCard({ card }: VisualizationCardProps) {
           chartRef={chartRef}
         />
 
-        {/* Chart / visualization */}
-        <div ref={chartRef} className="flex-1 min-h-0">
+        {/* Chart / visualization with refined container */}
+        <div 
+          ref={chartRef} 
+          className="flex-1 min-h-0 rounded-xl bg-slate-950/40 p-4 border border-slate-800/50"
+          style={{
+            boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.3)'
+          }}
+        >
           <ChartRenderer renderedOutput={card.renderedOutput} />
         </div>
 
@@ -159,6 +195,17 @@ export function VisualizationCard({ card }: VisualizationCardProps) {
           />
         )}
       </div>
+
+      {/* Subtle border glow on hover */}
+      <div 
+        className={`absolute inset-0 rounded-2xl pointer-events-none transition-opacity duration-300 ${
+          isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'
+        }`}
+        style={{
+          background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%)',
+          mixBlendMode: 'overlay'
+        }}
+      />
     </div>
   );
 }

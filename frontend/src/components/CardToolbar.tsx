@@ -151,7 +151,7 @@ export function CardToolbar({
   return (
     <div className="relative">
       <div
-        className="flex items-center gap-1 py-1 border-b border-gray-100 dark:border-gray-800"
+        className="flex items-center gap-1 py-2 border-b border-slate-800/30"
         role="toolbar"
         aria-label={`Toolbar for card: ${card.query}`}
       >
@@ -162,7 +162,7 @@ export function CardToolbar({
         <button
           type="button"
           onClick={handleDownloadPNG}
-          className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-all duration-200 backdrop-blur-sm"
           title="Download PNG"
           aria-label="Download PNG"
         >
@@ -186,7 +186,7 @@ export function CardToolbar({
         <button
           type="button"
           onClick={handleDownloadCSV}
-          className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-all duration-200 backdrop-blur-sm"
           title="Download CSV"
           aria-label="Download CSV"
         >
@@ -210,11 +210,12 @@ export function CardToolbar({
         <button
           type="button"
           onClick={handleTogglePin}
-          className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${
+          className={`p-1.5 rounded-lg transition-all duration-200 backdrop-blur-sm ${
             card.pinned
-              ? 'text-amber-500 dark:text-amber-400'
-              : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+              ? 'text-amber-400 hover:bg-amber-500/20'
+              : 'text-slate-400 hover:text-amber-400 hover:bg-slate-800/50'
           }`}
+          style={card.pinned ? { filter: 'drop-shadow(0 0 6px rgba(245, 158, 11, 0.5))' } : {}}
           title={card.pinned ? 'Unpin card' : 'Pin to canvas'}
           aria-label={card.pinned ? 'Unpin card' : 'Pin to canvas'}
           aria-pressed={card.pinned}
@@ -239,11 +240,12 @@ export function CardToolbar({
         <button
           type="button"
           onClick={handleBookmark}
-          className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${
+          className={`p-1.5 rounded-lg transition-all duration-200 backdrop-blur-sm ${
             card.bookmarked
-              ? 'text-blue-500 dark:text-blue-400'
-              : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+              ? 'text-cyan-400 hover:bg-cyan-500/20'
+              : 'text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50'
           }`}
+          style={card.bookmarked ? { filter: 'drop-shadow(0 0 6px rgba(6, 182, 212, 0.5))' } : {}}
           title={card.bookmarked ? 'Remove bookmark' : 'Bookmark'}
           aria-label={card.bookmarked ? 'Remove bookmark' : 'Bookmark'}
           aria-pressed={card.bookmarked}
@@ -265,12 +267,15 @@ export function CardToolbar({
         </button>
       </div>
 
-      {/* Export error message */}
+      {/* Export error message - refined alert */}
       {exportError && (
         <div
-          className="absolute top-full left-0 right-0 mt-1 px-2 py-1 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded"
+          className="absolute top-full left-0 right-0 mt-2 px-3 py-2 text-xs text-red-300 bg-red-950/60 backdrop-blur-sm border border-red-800/50 rounded-lg shadow-lg"
           role="alert"
           aria-live="polite"
+          style={{
+            boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
+          }}
         >
           {exportError}
         </div>

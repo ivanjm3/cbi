@@ -1,17 +1,32 @@
-import type { RenderedOutput } from '../types';
+import type { RenderedOutput, ChartType as BaseChartType } from '../types';
+import { CHART_TYPE_KEYWORDS } from '../types';
 
 /**
  * Supported chart types for visualization rendering.
+ * Includes 'text' as a rendering-only type (not something users can request).
  */
-export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'table' | 'heatmap' | 'text';
+export type ChartType = BaseChartType | 'text';
+
+/**
+ * Parse user-requested chart type from query text.
+ * Scans for known chart type keywords and returns the matching type, or null if none found.
+ */
+export function parseUserRequestedChartType(queryText: string): BaseChartType | null {
+  const lower = queryText.toLowerCase();
+  for (const [keyword, chartType] of Object.entries(CHART_TYPE_KEYWORDS)) {
+    if (lower.includes(keyword)) return chartType;
+  }
+  return null;
+}
 
 /**
  * Selects the appropriate chart type for a given rendered output.
  *
  * Selection priority:
- * 1. Explicit `chart_type` from the backend response (pass-through, normalized)
- * 2. Text-only output → 'text'
- * 3. Inference from column metadata:
+ * 1. User explicitly requested a chart type in their prompt (highest priority)
+ * 2. Backend specified `chart_type` (second priority)
+ * 3. Text-only output → 'text'
+ * 4. Inference from column metadata:
  *    - time-series + numeric → line
  *    - categorical + numeric → bar
  *    - 2 numeric (no categorical) → scatter
@@ -19,8 +34,14 @@ export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'table' | 'heatmap'
  *    - 3+ numeric → heatmap
  *    - else → table (fallback)
  */
-export function selectChartType(renderedOutput: RenderedOutput): ChartType {
-  // 1. Explicit backend instruction (normalize known aliases)
+export function selectChartType(
+  renderedOutput: RenderedOutput,
+  userRequestedType?: BaseChartType | null
+): ChartType {
+  // 1. User explicitly requested a chart type — highest priority
+  if (userRequestedType) return userRequestedType;
+
+  // 2. Backend specified chart type (normalize known aliases)
   if (renderedOutput.chart_type) {
     const ct = renderedOutput.chart_type.toLowerCase();
     if (ct === 'doughnut') return 'pie';
@@ -31,10 +52,10 @@ export function selectChartType(renderedOutput: RenderedOutput): ChartType {
     // Unknown chart type — fall through to inference or table
   }
 
-  // 2. Text-only response
+  // 3. Text-only response
   if (renderedOutput.output_type === 'text') return 'text';
 
-  // 3. Infer from data shape
+  // 4. Infer from data shape
   const columns = renderedOutput.metadata?.columns ?? [];
   const hasTime = columns.some((c) => c.type === 'time-series');
   const numericCols = columns.filter((c) => c.type === 'numeric');

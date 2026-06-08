@@ -1,171 +1,167 @@
 /**
- * Sidebar component with NewChatButton, ThreadList, and BookmarkList.
+ * Collapsible Sidebar component.
  *
- * - Displays up to 50 thread history entries (most recent first)
- * - Displays bookmarks with formatted timestamps (relative <24h, absolute otherwise)
- * - Bookmark delete with confirmation prompt
- * - Independent scroll for threads and bookmarks sections
- * - On narrow screens (<1024px), collapses to a top bar with hamburger toggle
+ * Expanded (260px): collapse toggle, "New Chat" button, scrollable chat history
+ * (up to 50 entries, most recent first), "Saved Prompts" section, and
+ * "Schedulability" disabled placeholder.
  *
- * Requirements: 1.2, 1.5, 1.6, 8.2, 8.5
+ * Collapsed (48px icon rail): icons only for New Chat, History, Saved Prompts,
+ * and Schedulability.
+ *
+ * Dark sidebar background (bg-sidebar: #1e293b) with light text (text-inverse).
+ * Animate between states with CSS transitions.
+ *
+ * Requirements: 1.2, 1.3, 1.4, 8.2, 8.3, 8.5, 12.1, 12.2, 12.3, 12.4
  */
 
 import { useState } from 'react';
 import { useSessionStore } from '../store/sessionStore';
 import { formatTimestamp } from '../utils/formatters';
-import type { ThreadSummary, Bookmark } from '../types';
+import type { SavedPrompt, ThreadSummary } from '../types';
+
+// ---------------------------------------------------------------------------
+// Icons (inline SVGs)
+// ---------------------------------------------------------------------------
+
+function CollapseIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className={`h-5 w-5 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+    </svg>
+  );
+}
+
+function NewChatIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function SavedPromptsIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+    </svg>
+  );
+}
+
+function ScheduleIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+    </svg>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function NewChatButton() {
-  const startNewChat = useSessionStore((s) => s.startNewChat);
-
+function ThreadHistoryItem({ thread }: { thread: ThreadSummary }) {
   return (
-    <button
-      type="button"
-      onClick={startNewChat}
-      className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-500 dark:hover:bg-blue-600"
-      aria-label="New Chat"
-    >
-      + New Chat
-    </button>
-  );
-}
-
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + '…';
-}
-
-function ThreadItem({ thread }: { thread: ThreadSummary }) {
-  return (
-    <li className="rounded-md px-3 py-2 text-sm hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer">
-      <p className="truncate font-medium text-gray-800 dark:text-gray-200">
-        {truncate(thread.firstMessage, 30)}
+    <li className="rounded px-3 py-2 text-sm hover:bg-white/10 cursor-pointer transition-colors duration-100">
+      <p className="truncate text-text-inverse font-medium text-sm">
+        {thread.firstMessage.length > 35
+          ? thread.firstMessage.slice(0, 35) + '…'
+          : thread.firstMessage}
       </p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-text-inverse/60 mt-0.5">
         {formatTimestamp(thread.lastActivity)}
       </p>
     </li>
   );
 }
 
-function ThreadList({ threads }: { threads: ThreadSummary[] }) {
-  if (threads.length === 0) {
-    return (
-      <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">
-        No chat history yet.
-      </p>
-    );
-  }
-
-  return (
-    <ul className="space-y-1" role="list" aria-label="Chat history">
-      {threads.slice(0, 50).map((thread) => (
-        <ThreadItem key={thread.id} thread={thread} />
-      ))}
-    </ul>
-  );
-}
-
-function BookmarkItem({
-  bookmark,
+function SavedPromptItem({
+  prompt,
   onDelete,
   onLoad,
 }: {
-  bookmark: Bookmark;
+  prompt: SavedPrompt;
   onDelete: (id: string) => void;
   onLoad: (id: string) => void;
 }) {
   return (
-    <li className="group flex items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-gray-200 dark:hover:bg-gray-700">
+    <li className="group flex items-center justify-between rounded px-3 py-2 text-sm hover:bg-white/10 transition-colors duration-100">
       <button
         type="button"
-        onClick={() => onLoad(bookmark.id)}
+        onClick={() => onLoad(prompt.id)}
         className="flex-1 min-w-0 text-left cursor-pointer"
-        aria-label={`Load bookmark ${bookmark.name}`}
+        aria-label={`Load saved prompt: ${prompt.name}`}
       >
-        <p className="truncate font-medium text-gray-800 dark:text-gray-200">
-          {bookmark.name}
+        <p className="truncate text-text-inverse font-medium text-sm">
+          {prompt.name}
         </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {formatTimestamp(bookmark.savedAt)}
+        <p className="text-xs text-text-inverse/60 mt-0.5">
+          {formatTimestamp(prompt.savedAt)}
         </p>
       </button>
       <button
         type="button"
-        onClick={() => onDelete(bookmark.id)}
-        className="ml-2 hidden rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-600 group-hover:block dark:hover:bg-red-900 dark:hover:text-red-400"
-        aria-label={`Delete bookmark ${bookmark.name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(prompt.id);
+        }}
+        className="ml-2 hidden rounded p-1 text-text-inverse/40 hover:bg-white/10 hover:text-red-400 group-hover:block"
+        aria-label={`Delete saved prompt: ${prompt.name}`}
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-          />
-        </svg>
+        <DeleteIcon />
       </button>
     </li>
   );
 }
 
-function BookmarkList({
-  bookmarks,
-  onDelete,
-  onLoad,
-}: {
-  bookmarks: Bookmark[];
-  onDelete: (id: string) => void;
-  onLoad: (id: string) => void;
-}) {
-  if (bookmarks.length === 0) {
-    return (
-      <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">
-        No bookmarks saved.
-      </p>
-    );
-  }
-
-  return (
-    <ul className="space-y-1" role="list" aria-label="Bookmarks">
-      {bookmarks.slice(0, 50).map((bookmark) => (
-        <BookmarkItem key={bookmark.id} bookmark={bookmark} onDelete={onDelete} onLoad={onLoad} />
-      ))}
-    </ul>
-  );
-}
-
 // ---------------------------------------------------------------------------
-// Sidebar Content (shared between desktop and mobile overlay)
+// Main Sidebar
 // ---------------------------------------------------------------------------
 
-function SidebarContent({ onClose }: { onClose?: () => void }) {
-  const threads = useSessionStore((s) => s.threads);
-  const bookmarks = useSessionStore((s) => s.bookmarks);
+export function Sidebar() {
+  const sidebarCollapsed = useSessionStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useSessionStore((s) => s.toggleSidebar);
+  const startNewChat = useSessionStore((s) => s.startNewChat);
+  const chatHistory = useSessionStore((s) => s.chatHistory);
+  const savedPrompts = useSessionStore((s) => s.savedPrompts);
   const chatThread = useSessionStore((s) => s.chatThread);
-  const deleteBookmark = useSessionStore((s) => s.deleteBookmark);
-  const loadBookmark = useSessionStore((s) => s.loadBookmark);
+  const loadSavedPrompt = useSessionStore((s) => s.loadSavedPrompt);
+  const deleteSavedPrompt = useSessionStore((s) => s.deleteSavedPrompt);
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingLoadId, setPendingLoadId] = useState<string | null>(null);
+  const [schedulabilityTooltip, setSchedulabilityTooltip] = useState(false);
 
+  // Delete confirmation
   const handleDeleteRequest = (id: string) => {
     setPendingDeleteId(id);
   };
 
   const confirmDelete = () => {
     if (pendingDeleteId) {
-      deleteBookmark(pendingDeleteId);
+      deleteSavedPrompt(pendingDeleteId);
       setPendingDeleteId(null);
     }
   };
@@ -174,19 +170,18 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     setPendingDeleteId(null);
   };
 
-  // Bookmark load with unsaved-changes confirmation
+  // Load with unsaved-changes confirmation
   const handleLoadRequest = (id: string) => {
-    // If there are unsaved changes (non-empty chat thread), prompt confirmation
     if (chatThread.length > 0) {
       setPendingLoadId(id);
     } else {
-      loadBookmark(id);
+      loadSavedPrompt(id);
     }
   };
 
   const confirmLoad = () => {
     if (pendingLoadId) {
-      loadBookmark(pendingLoadId);
+      loadSavedPrompt(pendingLoadId);
       setPendingLoadId(null);
     }
   };
@@ -195,59 +190,172 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     setPendingLoadId(null);
   };
 
-  const pendingBookmark = pendingDeleteId
-    ? bookmarks.find((b) => b.id === pendingDeleteId)
+  const pendingPrompt = pendingDeleteId
+    ? savedPrompts.find((p) => p.id === pendingDeleteId)
     : null;
 
-  const pendingLoadBookmark = pendingLoadId
-    ? bookmarks.find((b) => b.id === pendingLoadId)
+  const pendingLoadPrompt = pendingLoadId
+    ? savedPrompts.find((p) => p.id === pendingLoadId)
     : null;
+
+  // -------------------------------------------------------------------------
+  // Collapsed state: 48px icon rail
+  // -------------------------------------------------------------------------
+
+  if (sidebarCollapsed) {
+    return (
+      <aside
+        className="flex h-full w-[48px] min-w-[48px] flex-col items-center bg-bg-sidebar py-3 gap-4 shadow-sidebar transition-all duration-200"
+        aria-label="Sidebar collapsed"
+      >
+        {/* Expand toggle */}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="rounded p-2 text-text-inverse/70 hover:bg-white/10 hover:text-text-inverse transition-colors"
+          aria-label="Expand sidebar"
+        >
+          <CollapseIcon collapsed={true} />
+        </button>
+
+        {/* New Chat */}
+        <button
+          type="button"
+          onClick={startNewChat}
+          className="rounded p-2 text-text-inverse/70 hover:bg-white/10 hover:text-text-inverse transition-colors"
+          aria-label="New Chat"
+          title="New Chat"
+        >
+          <NewChatIcon />
+        </button>
+
+        {/* History */}
+        <div
+          className="rounded p-2 text-text-inverse/70"
+          aria-label="Chat history"
+          title="Chat History"
+        >
+          <HistoryIcon />
+        </div>
+
+        {/* Saved Prompts */}
+        <div
+          className="rounded p-2 text-text-inverse/70"
+          aria-label="Saved prompts"
+          title="Saved Prompts"
+        >
+          <SavedPromptsIcon />
+        </div>
+
+        {/* Schedulability (disabled) */}
+        <div
+          className="rounded p-2 text-text-inverse/30 opacity-50 cursor-not-allowed"
+          aria-label="Scheduled Reports"
+          title="Coming soon — schedule recurring queries and reports"
+        >
+          <ScheduleIcon />
+        </div>
+      </aside>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Expanded state: 260px full sidebar
+  // -------------------------------------------------------------------------
 
   return (
     <>
-      {/* New Chat Button */}
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-        <div className="flex-1">
-          <NewChatButton />
-        </div>
-        {onClose && (
+      <aside
+        className="flex h-full w-[260px] min-w-[260px] flex-col bg-bg-sidebar shadow-sidebar transition-all duration-200"
+        aria-label="Sidebar"
+      >
+        {/* Header: Collapse toggle + New Chat */}
+        <div className="flex items-center justify-between px-3 py-3 border-b border-white/10">
           <button
             type="button"
-            onClick={onClose}
-            className="ml-3 rounded p-1.5 text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200 lg:hidden"
-            aria-label="Close sidebar"
+            onClick={startNewChat}
+            className="flex items-center gap-2 rounded-md bg-accent-primary px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover transition-colors"
+            aria-label="New Chat"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <NewChatIcon />
+            <span>New Chat</span>
           </button>
-        )}
-      </div>
-
-      {/* Thread History */}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-          <h2 className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            Chat History
-          </h2>
-          <ThreadList threads={threads} />
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="rounded p-2 text-text-inverse/70 hover:bg-white/10 hover:text-text-inverse transition-colors"
+            aria-label="Collapse sidebar"
+          >
+            <CollapseIcon collapsed={false} />
+          </button>
         </div>
 
-        {/* Bookmarks */}
-        <div className="flex-1 min-h-0 overflow-y-auto border-t border-gray-200 dark:border-gray-700 px-2 py-3">
-          <h2 className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            Bookmarks
-          </h2>
-          <BookmarkList bookmarks={bookmarks} onDelete={handleDeleteRequest} onLoad={handleLoadRequest} />
+        {/* Scrollable content */}
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+          {/* Chat History */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
+            <h2 className="flex items-center gap-2 px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-text-inverse/50">
+              <HistoryIcon />
+              Chat History
+            </h2>
+            {chatHistory.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-text-inverse/40">
+                No chat history yet.
+              </p>
+            ) : (
+              <ul className="space-y-0.5" role="list" aria-label="Chat history list">
+                {chatHistory.slice(0, 50).map((thread) => (
+                  <ThreadHistoryItem key={thread.id} thread={thread} />
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Saved Prompts */}
+          <div className="flex-1 min-h-0 overflow-y-auto border-t border-white/10 px-2 py-3">
+            <h2 className="flex items-center gap-2 px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-text-inverse/50">
+              <SavedPromptsIcon />
+              Saved Prompts
+            </h2>
+            {savedPrompts.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-text-inverse/40">
+                No saved prompts.
+              </p>
+            ) : (
+              <ul className="space-y-0.5" role="list" aria-label="Saved prompts list">
+                {savedPrompts.slice(0, 50).map((prompt) => (
+                  <SavedPromptItem
+                    key={prompt.id}
+                    prompt={prompt}
+                    onDelete={handleDeleteRequest}
+                    onLoad={handleLoadRequest}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Schedulability (disabled placeholder) */}
+          <div className="border-t border-white/10 px-2 py-3">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-text-inverse/30 opacity-50 cursor-not-allowed relative"
+              aria-label="Scheduled Reports"
+              onClick={() => setSchedulabilityTooltip(true)}
+              onMouseEnter={() => setSchedulabilityTooltip(true)}
+              onMouseLeave={() => setSchedulabilityTooltip(false)}
+            >
+              <ScheduleIcon />
+              <span className="text-sm">Scheduled Reports</span>
+            </button>
+            {schedulabilityTooltip && (
+              <p className="mx-3 mt-1 rounded bg-white/10 px-2 py-1 text-xs text-text-inverse/70">
+                Coming soon — schedule recurring queries and reports
+              </p>
+            )}
+          </div>
         </div>
-      </div>
+      </aside>
 
       {/* Delete Confirmation Modal */}
       {pendingDeleteId && (
@@ -255,16 +363,16 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           role="dialog"
           aria-modal="true"
-          aria-label="Confirm bookmark deletion"
+          aria-label="Confirm saved prompt deletion"
         >
-          <div className="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              Delete Bookmark
+          <div className="mx-4 w-full max-w-sm rounded-lg bg-bg-secondary p-6 shadow-panel">
+            <h3 className="text-sm font-semibold text-text-primary">
+              Delete Saved Prompt
             </h3>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            <p className="mt-2 text-sm text-text-secondary">
               Are you sure you want to delete{' '}
               <span className="font-medium">
-                &ldquo;{pendingBookmark?.name ?? 'this bookmark'}&rdquo;
+                &ldquo;{pendingPrompt?.name ?? 'this prompt'}&rdquo;
               </span>
               ? This action cannot be undone.
             </p>
@@ -272,14 +380,14 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
               <button
                 type="button"
                 onClick={cancelDelete}
-                className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                className="rounded-md px-3 py-2 text-sm font-medium text-text-secondary hover:bg-bg-input"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={confirmDelete}
-                className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="rounded-md bg-status-error px-3 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-status-error"
               >
                 Delete
               </button>
@@ -294,16 +402,16 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           role="dialog"
           aria-modal="true"
-          aria-label="Confirm loading bookmark"
+          aria-label="Confirm loading saved prompt"
         >
-          <div className="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              Load Bookmark
+          <div className="mx-4 w-full max-w-sm rounded-lg bg-bg-secondary p-6 shadow-panel">
+            <h3 className="text-sm font-semibold text-text-primary">
+              Load Saved Prompt
             </h3>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            <p className="mt-2 text-sm text-text-secondary">
               You have unsaved changes in your current session. Loading{' '}
               <span className="font-medium">
-                &ldquo;{pendingLoadBookmark?.name ?? 'this bookmark'}&rdquo;
+                &ldquo;{pendingLoadPrompt?.name ?? 'this prompt'}&rdquo;
               </span>{' '}
               will replace your current work. Continue?
             </p>
@@ -311,83 +419,19 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
               <button
                 type="button"
                 onClick={cancelLoad}
-                className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                className="rounded-md px-3 py-2 text-sm font-medium text-text-secondary hover:bg-bg-input"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={confirmLoad}
-                className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="rounded-md bg-accent-primary px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent-primary"
               >
                 Load
               </button>
             </div>
           </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main Sidebar (exported)
-// ---------------------------------------------------------------------------
-
-export function Sidebar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  return (
-    <>
-      {/* Desktop Sidebar — hidden below 1024px */}
-      <aside
-        className="hidden lg:flex h-full w-[260px] min-w-[260px] border-r border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900 flex-col"
-        aria-label="Sidebar"
-      >
-        <SidebarContent />
-      </aside>
-
-      {/* Mobile Top Bar — shown below 1024px */}
-      <div
-        className="lg:hidden flex items-center justify-between border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-2 min-h-[44px]"
-        aria-label="Sidebar toggle"
-      >
-        <button
-          type="button"
-          onClick={() => setMobileOpen(true)}
-          className="flex items-center gap-2 rounded p-2 text-gray-700 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700 min-w-[44px] min-h-[44px] justify-center"
-          aria-label="Open sidebar menu"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-          <span className="text-sm font-medium">Menu</span>
-        </button>
-      </div>
-
-      {/* Mobile Sidebar Overlay — shown when toggled on narrow screens */}
-      {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex">
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/40"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          {/* Sidebar panel */}
-          <aside
-            className="relative z-50 flex h-full w-[280px] max-w-[80vw] flex-col bg-gray-50 dark:bg-gray-900 shadow-xl"
-            aria-label="Sidebar menu"
-          >
-            <SidebarContent onClose={() => setMobileOpen(false)} />
-          </aside>
         </div>
       )}
     </>

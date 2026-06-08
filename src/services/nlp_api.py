@@ -111,6 +111,18 @@ async def serve_frontend() -> FileResponse:
     return FileResponse(_FRONTEND_DIR / "index.html", media_type="text/html")
 
 
+@app.get("/cost-report")
+async def cost_report_endpoint():
+    """Return today's cost report as JSON."""
+    from src.services.cost_tracker import get_cost_tracker
+    try:
+        tracker = get_cost_tracker()
+        summary = tracker.get_daily_summary()
+        return JSONResponse(status_code=200, content=summary)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 import asyncio
 import uuid
 
