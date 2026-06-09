@@ -1,15 +1,16 @@
 /**
- * Collapsible Sidebar component.
+ * Collapsible Sidebar component with dropdown sections.
  *
- * Expanded (260px): collapse toggle, "New Chat" button, scrollable chat history
- * (up to 50 entries, most recent first), "Saved Prompts" section, and
- * "Schedulability" disabled placeholder.
+ * Expanded (260px): collapse toggle, "New Chat" button, dropdown-collapsible
+ * chat history (up to 50 entries, most recent first), dropdown-collapsible
+ * "Saved Prompts" section, and "Schedulability" disabled placeholder.
  *
  * Collapsed (48px icon rail): icons only for New Chat, History, Saved Prompts,
  * and Schedulability.
  *
  * Dark sidebar background (bg-sidebar: #1e293b) with light text (text-inverse).
  * Animate between states with CSS transitions.
+ * Sections are collapsible dropdowns with chevron indicators.
  *
  * Requirements: 1.2, 1.3, 1.4, 8.2, 8.3, 8.5, 12.1, 12.2, 12.3, 12.4
  */
@@ -70,6 +71,92 @@ function ScheduleIcon() {
   );
 }
 
+function ChevronDownIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-0' : '-rotate-90'}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+    </svg>
+  );
+}
+
+/**
+ * Collapsible dropdown section for sidebar items.
+ */
+function DropdownSection({
+  icon,
+  label,
+  open,
+  onToggle,
+  children,
+  disabled = false,
+  disabledMessage,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+  disabledMessage?: string;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  if (disabled) {
+    return (
+      <div className="px-2 py-1">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded px-3 py-2 text-text-inverse/30 opacity-50 cursor-not-allowed"
+          aria-label={label}
+          onClick={() => setShowTooltip(true)}
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+        >
+          {icon}
+          <span className="flex-1 text-left text-sm">{label}</span>
+        </button>
+        {showTooltip && disabledMessage && (
+          <p className="mx-3 mt-1 rounded bg-white/10 px-2 py-1 text-xs text-text-inverse/70">
+            {disabledMessage}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-2 py-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 rounded px-3 py-2 text-text-inverse/70 hover:bg-white/10 hover:text-text-inverse transition-colors"
+        aria-expanded={open}
+        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
+      >
+        {icon}
+        <span className="flex-1 text-left text-xs font-semibold uppercase tracking-wider">
+          {label}
+        </span>
+        <ChevronDownIcon open={open} />
+      </button>
+      <div
+        className={`overflow-hidden transition-all duration-200 ${
+          open ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
+        }`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function DeleteIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -83,16 +170,80 @@ function DeleteIcon() {
 // ---------------------------------------------------------------------------
 
 function ThreadHistoryItem({ thread }: { thread: ThreadSummary }) {
+  const loadChatThread = useSessionStore((s) => s.loadChatThread);
+  const deleteChatThread = useSessionStore((s) => s.deleteChatThread);
+  const renameChatThread = useSessionStore((s) => s.renameChatThread);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(thread.firstMessage);
+
+  const handleRename = () => {
+    if (renameValue.trim()) {
+      renameChatThread(thread.id, renameValue.trim());
+    }
+    setRenaming(false);
+    setMenuOpen(false);
+  };
+
   return (
-    <li className="rounded px-3 py-2 text-sm hover:bg-white/10 cursor-pointer transition-colors duration-100">
-      <p className="truncate text-text-inverse font-medium text-sm">
-        {thread.firstMessage.length > 35
-          ? thread.firstMessage.slice(0, 35) + '…'
-          : thread.firstMessage}
-      </p>
-      <p className="text-xs text-text-inverse/60 mt-0.5">
-        {formatTimestamp(thread.lastActivity)}
-      </p>
+    <li className="group relative rounded px-3 py-2 text-sm hover:bg-white/10 cursor-pointer transition-colors duration-100">
+      {renaming ? (
+        <input
+          type="text"
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onBlur={handleRename}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') { setRenaming(false); setMenuOpen(false); } }}
+          autoFocus
+          className="w-full rounded bg-white/10 px-1 py-0.5 text-sm text-text-inverse outline-none ring-1 ring-white/30"
+          maxLength={100}
+        />
+      ) : (
+        <div onClick={() => loadChatThread(thread.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') loadChatThread(thread.id); }}>
+          <p className="truncate text-text-inverse font-medium text-sm pr-6">
+            {thread.firstMessage.length > 35
+              ? thread.firstMessage.slice(0, 35) + '…'
+              : thread.firstMessage}
+          </p>
+          <p className="text-xs text-text-inverse/60 mt-0.5">
+            {formatTimestamp(thread.lastActivity)}
+          </p>
+        </div>
+      )}
+
+      {/* Three-dot menu */}
+      {!renaming && (
+        <div className="absolute right-2 top-2 hidden group-hover:block">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+            className="rounded p-1 text-text-inverse/50 hover:bg-white/10 hover:text-text-inverse"
+            aria-label="Thread options"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+            </svg>
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-6 z-50 w-32 rounded-md bg-bg-sidebar border border-white/20 py-1 shadow-lg">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setRenaming(true); setRenameValue(thread.firstMessage); setMenuOpen(false); }}
+                className="w-full px-3 py-1.5 text-left text-xs text-text-inverse/80 hover:bg-white/10"
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); deleteChatThread(thread.id); setMenuOpen(false); }}
+                className="w-full px-3 py-1.5 text-left text-xs text-red-400 hover:bg-white/10"
+              >
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -112,7 +263,7 @@ function SavedPromptItem({
         type="button"
         onClick={() => onLoad(prompt.id)}
         className="flex-1 min-w-0 text-left cursor-pointer"
-        aria-label={`Load saved prompt: ${prompt.name}`}
+        aria-label={`Load saved chat: ${prompt.name}`}
       >
         <p className="truncate text-text-inverse font-medium text-sm">
           {prompt.name}
@@ -128,7 +279,7 @@ function SavedPromptItem({
           onDelete(prompt.id);
         }}
         className="ml-2 hidden rounded p-1 text-text-inverse/40 hover:bg-white/10 hover:text-red-400 group-hover:block"
-        aria-label={`Delete saved prompt: ${prompt.name}`}
+        aria-label={`Delete saved chat: ${prompt.name}`}
       >
         <DeleteIcon />
       </button>
@@ -152,7 +303,8 @@ export function Sidebar() {
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingLoadId, setPendingLoadId] = useState<string | null>(null);
-  const [schedulabilityTooltip, setSchedulabilityTooltip] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(true);
+  const [savedPromptsOpen, setSavedPromptsOpen] = useState(true);
 
   // Delete confirmation
   const handleDeleteRequest = (id: string) => {
@@ -291,69 +443,67 @@ export function Sidebar() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-          {/* Chat History */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
-            <h2 className="flex items-center gap-2 px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-text-inverse/50">
-              <HistoryIcon />
-              Chat History
-            </h2>
-            {chatHistory.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-text-inverse/40">
-                No chat history yet.
-              </p>
-            ) : (
-              <ul className="space-y-0.5" role="list" aria-label="Chat history list">
-                {chatHistory.slice(0, 50).map((thread) => (
-                  <ThreadHistoryItem key={thread.id} thread={thread} />
-                ))}
-              </ul>
-            )}
-          </div>
+        <div className="flex flex-1 min-h-0 flex-col overflow-y-auto">
+          {/* Chat History — Dropdown */}
+          <DropdownSection
+            icon={<HistoryIcon />}
+            label="Chat History"
+            open={historyOpen}
+            onToggle={() => setHistoryOpen(!historyOpen)}
+          >
+            <div className="px-1 pb-2">
+              {chatHistory.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-text-inverse/40">
+                  No chat history yet.
+                </p>
+              ) : (
+                <ul className="space-y-0.5" role="list" aria-label="Chat history list">
+                  {chatHistory.slice(0, 50).map((thread) => (
+                    <ThreadHistoryItem key={thread.id} thread={thread} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          </DropdownSection>
 
-          {/* Saved Prompts */}
-          <div className="flex-1 min-h-0 overflow-y-auto border-t border-white/10 px-2 py-3">
-            <h2 className="flex items-center gap-2 px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-text-inverse/50">
-              <SavedPromptsIcon />
-              Saved Prompts
-            </h2>
-            {savedPrompts.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-text-inverse/40">
-                No saved prompts.
-              </p>
-            ) : (
-              <ul className="space-y-0.5" role="list" aria-label="Saved prompts list">
-                {savedPrompts.slice(0, 50).map((prompt) => (
-                  <SavedPromptItem
-                    key={prompt.id}
-                    prompt={prompt}
-                    onDelete={handleDeleteRequest}
-                    onLoad={handleLoadRequest}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
+          {/* Saved Chats — Dropdown */}
+          <DropdownSection
+            icon={<SavedPromptsIcon />}
+            label="Saved Prompts"
+            open={savedPromptsOpen}
+            onToggle={() => setSavedPromptsOpen(!savedPromptsOpen)}
+          >
+            <div className="px-1 pb-2">
+              {savedPrompts.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-text-inverse/40">
+                  No saved chats.
+                </p>
+              ) : (
+                <ul className="space-y-0.5" role="list" aria-label="Saved prompts list">
+                  {savedPrompts.slice(0, 50).map((prompt) => (
+                    <SavedPromptItem
+                      key={prompt.id}
+                      prompt={prompt}
+                      onDelete={handleDeleteRequest}
+                      onLoad={handleLoadRequest}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          </DropdownSection>
 
-          {/* Schedulability (disabled placeholder) */}
-          <div className="border-t border-white/10 px-2 py-3">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded px-3 py-2 text-text-inverse/30 opacity-50 cursor-not-allowed relative"
-              aria-label="Scheduled Reports"
-              onClick={() => setSchedulabilityTooltip(true)}
-              onMouseEnter={() => setSchedulabilityTooltip(true)}
-              onMouseLeave={() => setSchedulabilityTooltip(false)}
-            >
-              <ScheduleIcon />
-              <span className="text-sm">Scheduled Reports</span>
-            </button>
-            {schedulabilityTooltip && (
-              <p className="mx-3 mt-1 rounded bg-white/10 px-2 py-1 text-xs text-text-inverse/70">
-                Coming soon — schedule recurring queries and reports
-              </p>
-            )}
-          </div>
+          {/* Schedulability (disabled placeholder) — Dropdown */}
+          <DropdownSection
+            icon={<ScheduleIcon />}
+            label="Scheduled Reports"
+            open={false}
+            onToggle={() => {}}
+            disabled={true}
+            disabledMessage="Coming soon — schedule recurring queries and reports"
+          >
+            <div />
+          </DropdownSection>
         </div>
       </aside>
 
@@ -363,16 +513,16 @@ export function Sidebar() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           role="dialog"
           aria-modal="true"
-          aria-label="Confirm saved prompt deletion"
+          aria-label="Confirm saved chat deletion"
         >
           <div className="mx-4 w-full max-w-sm rounded-lg bg-bg-secondary p-6 shadow-panel">
             <h3 className="text-sm font-semibold text-text-primary">
-              Delete Saved Prompt
+              Delete Saved Chat
             </h3>
             <p className="mt-2 text-sm text-text-secondary">
               Are you sure you want to delete{' '}
               <span className="font-medium">
-                &ldquo;{pendingPrompt?.name ?? 'this prompt'}&rdquo;
+                &ldquo;{pendingPrompt?.name ?? 'this chat'}&rdquo;
               </span>
               ? This action cannot be undone.
             </p>
@@ -402,16 +552,16 @@ export function Sidebar() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           role="dialog"
           aria-modal="true"
-          aria-label="Confirm loading saved prompt"
+          aria-label="Confirm loading saved chat"
         >
           <div className="mx-4 w-full max-w-sm rounded-lg bg-bg-secondary p-6 shadow-panel">
             <h3 className="text-sm font-semibold text-text-primary">
-              Load Saved Prompt
+              Load Saved Chat
             </h3>
             <p className="mt-2 text-sm text-text-secondary">
               You have unsaved changes in your current session. Loading{' '}
               <span className="font-medium">
-                &ldquo;{pendingLoadPrompt?.name ?? 'this prompt'}&rdquo;
+                &ldquo;{pendingLoadPrompt?.name ?? 'this chat'}&rdquo;
               </span>{' '}
               will replace your current work. Continue?
             </p>

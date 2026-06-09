@@ -44,8 +44,9 @@ export function selectChartType(
   // 2. Backend specified chart type (normalize known aliases)
   if (renderedOutput.chart_type) {
     const ct = renderedOutput.chart_type.toLowerCase();
-    if (ct === 'doughnut') return 'pie';
+    if (ct === 'doughnut' || ct === 'polararea') return 'pie';
     if (ct === 'bubble') return 'scatter';
+    if (ct === 'radar') return 'radar';
     if (ct === 'bar' || ct === 'line' || ct === 'scatter' || ct === 'pie' || ct === 'table' || ct === 'heatmap') {
       return ct;
     }

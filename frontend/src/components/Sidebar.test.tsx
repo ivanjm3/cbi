@@ -1,5 +1,5 @@
 /**
- * Unit tests for Sidebar component – Saved Prompts section.
+ * Unit tests for Sidebar component – Saved Chats section.
  * Validates: Requirements 8.2, 8.3, 8.5
  */
 
@@ -38,7 +38,7 @@ function makeUserMessage(content = 'hello'): ChatMessage {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Sidebar – Saved Prompts', () => {
+describe('Sidebar – Saved Chats', () => {
   beforeEach(() => {
     // Reset store to a clean expanded state with no prompts
     useSessionStore.setState({
@@ -55,12 +55,12 @@ describe('Sidebar – Saved Prompts', () => {
   });
 
   describe('Display (Requirement 8.2)', () => {
-    it('shows empty state when there are no saved prompts', () => {
+    it('shows empty state when there are no saved chats', () => {
       render(<Sidebar />);
-      expect(screen.getByText('No saved prompts.')).toBeInTheDocument();
+      expect(screen.getByText('No saved chats.')).toBeInTheDocument();
     });
 
-    it('displays saved prompts with name and timestamp', () => {
+    it('displays Saved Chats with name and timestamp', () => {
       const now = Date.now();
       const prompt = makeSavedPrompt({
         name: 'Revenue Analysis',
@@ -73,7 +73,7 @@ describe('Sidebar – Saved Prompts', () => {
       expect(screen.getByText('2 hours ago')).toBeInTheDocument();
     });
 
-    it('displays up to 50 saved prompts', () => {
+    it('displays up to 50 Saved Chats', () => {
       const prompts = Array.from({ length: 55 }, (_, i) =>
         makeSavedPrompt({ name: `Prompt ${i}` }),
       );
@@ -81,7 +81,7 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
       // Should only show 50
-      const items = screen.getAllByRole('button', { name: /Load saved prompt/ });
+      const items = screen.getAllByRole('button', { name: /Load saved chat/ });
       expect(items).toHaveLength(50);
     });
 
@@ -111,7 +111,7 @@ describe('Sidebar – Saved Prompts', () => {
       useSessionStore.setState({ savedPrompts: [newer, older] });
 
       render(<Sidebar />);
-      const buttons = screen.getAllByRole('button', { name: /Load saved prompt/ });
+      const buttons = screen.getAllByRole('button', { name: /Load saved chat/ });
       expect(buttons[0]).toHaveTextContent('Newer Prompt');
       expect(buttons[1]).toHaveTextContent('Older Prompt');
     });
@@ -125,13 +125,13 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
 
-      const deleteBtn = screen.getByLabelText('Delete saved prompt: My Analysis');
+      const deleteBtn = screen.getByLabelText('Delete saved chat: My Analysis');
       await user.click(deleteBtn);
 
-      expect(screen.getByText('Delete Saved Prompt')).toBeInTheDocument();
+      expect(screen.getByText('Delete Saved Chat')).toBeInTheDocument();
       expect(screen.getByText(/Are you sure you want to delete/)).toBeInTheDocument();
       // The modal contains the prompt name in a confirmation message
-      const dialog = screen.getByRole('dialog', { name: /Confirm saved prompt deletion/ });
+      const dialog = screen.getByRole('dialog', { name: /Confirm saved chat deletion/ });
       expect(dialog).toBeInTheDocument();
     });
 
@@ -142,7 +142,7 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
 
-      const deleteBtn = screen.getByLabelText('Delete saved prompt: To Delete');
+      const deleteBtn = screen.getByLabelText('Delete saved chat: To Delete');
       await user.click(deleteBtn);
 
       const confirmBtn = screen.getByRole('button', { name: 'Delete' });
@@ -158,7 +158,7 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
 
-      const deleteBtn = screen.getByLabelText('Delete saved prompt: Keep Me');
+      const deleteBtn = screen.getByLabelText('Delete saved chat: Keep Me');
       await user.click(deleteBtn);
 
       const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
@@ -166,7 +166,7 @@ describe('Sidebar – Saved Prompts', () => {
 
       expect(useSessionStore.getState().savedPrompts).toHaveLength(1);
       // Modal should be dismissed
-      expect(screen.queryByText('Delete Saved Prompt')).not.toBeInTheDocument();
+      expect(screen.queryByText('Delete Saved Chat')).not.toBeInTheDocument();
     });
   });
 
@@ -181,11 +181,11 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
 
-      const loadBtn = screen.getByLabelText('Load saved prompt: Direct Load');
+      const loadBtn = screen.getByLabelText('Load saved chat: Direct Load');
       await user.click(loadBtn);
 
       // Should load immediately without confirmation
-      expect(screen.queryByText('Load Saved Prompt')).not.toBeInTheDocument();
+      expect(screen.queryByText('Load Saved Chat')).not.toBeInTheDocument();
       const state = useSessionStore.getState();
       expect(state.chatThread).toHaveLength(1);
       expect(state.chatThread[0].content).toBe('saved query');
@@ -201,10 +201,10 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
 
-      const loadBtn = screen.getByLabelText('Load saved prompt: Load This');
+      const loadBtn = screen.getByLabelText('Load saved chat: Load This');
       await user.click(loadBtn);
 
-      expect(screen.getByText('Load Saved Prompt')).toBeInTheDocument();
+      expect(screen.getByText('Load Saved Chat')).toBeInTheDocument();
       expect(screen.getByText(/unsaved changes/)).toBeInTheDocument();
     });
 
@@ -222,7 +222,7 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
 
-      const loadBtn = screen.getByLabelText('Load saved prompt: Confirm Load');
+      const loadBtn = screen.getByLabelText('Load saved chat: Confirm Load');
       await user.click(loadBtn);
 
       const confirmBtn = screen.getByRole('button', { name: 'Load' });
@@ -243,7 +243,7 @@ describe('Sidebar – Saved Prompts', () => {
 
       render(<Sidebar />);
 
-      const loadBtn = screen.getByLabelText('Load saved prompt: Cancel Load');
+      const loadBtn = screen.getByLabelText('Load saved chat: Cancel Load');
       await user.click(loadBtn);
 
       const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
@@ -254,7 +254,7 @@ describe('Sidebar – Saved Prompts', () => {
       expect(state.chatThread).toHaveLength(1);
       expect(state.chatThread[0].content).toBe('keep this');
       // Modal dismissed
-      expect(screen.queryByText('Load Saved Prompt')).not.toBeInTheDocument();
+      expect(screen.queryByText('Load Saved Chat')).not.toBeInTheDocument();
     });
   });
 });

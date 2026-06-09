@@ -201,7 +201,28 @@ export const useSessionStore = create<SessionState>()(
           timestamp: Date.now(),
         };
 
-        set({ loading: true, chatThread: [...get().chatThread, userMessage] });
+        const state = get();
+
+        // Auto-update the current thread's entry in chat history
+        // If this is the FIRST message in the thread, create a history entry
+        if (state.chatThread.length === 0) {
+          const threadId = generateId();
+          const summary: ThreadSummary = {
+            id: threadId,
+            firstMessage: queryText.length > 60 ? queryText.slice(0, 60) + '…' : queryText,
+            lastActivity: Date.now(),
+            messageCount: 1,
+            chatThread: [userMessage],
+            cards: Object.values(state.cards),
+          };
+          set({
+            loading: true,
+            chatThread: [userMessage],
+            chatHistory: [summary, ...state.chatHistory].slice(0, MAX_CHAT_HISTORY),
+          });
+        } else {
+          set({ loading: true, chatThread: [...state.chatThread, userMessage] });
+        }
 
         try {
           const result = await queryBackend(queryText);
@@ -263,6 +284,23 @@ export const useSessionStore = create<SessionState>()(
               activeCardId: cardId,
               loading: false,
             });
+
+            // Sync current thread to its history entry
+            const updatedState = get();
+            const historyIdx = updatedState.chatHistory.findIndex(
+              (h) => h.chatThread[0]?.id === updatedState.chatThread[0]?.id
+            );
+            if (historyIdx >= 0) {
+              const updatedHistory = [...updatedState.chatHistory];
+              updatedHistory[historyIdx] = {
+                ...updatedHistory[historyIdx],
+                lastActivity: Date.now(),
+                messageCount: updatedState.chatThread.length,
+                chatThread: [...updatedState.chatThread],
+                cards: Object.values(updatedState.cards),
+              };
+              set({ chatHistory: updatedHistory });
+            }
           } else {
             // API error
             const errorMessage: ChatMessage = {
@@ -376,12 +414,26 @@ export const useSessionStore = create<SessionState>()(
         const state = get();
         const finalName = name.slice(0, 100);
 
+        // Only save pinned cards (min 1, max 6).
+        // A "saved chat" is the user's bookmarked session containing
+        // only the visualizations they explicitly pinned.
+        const pinnedCards = Object.values(state.cards).filter((c) => c.pinned);
+        const cardsToSave = pinnedCards.length > 0
+          ? pinnedCards.slice(0, 6)
+          : Object.values(state.cards).slice(0, 1); // At least 1 card if none pinned
+
+        // Build a minimal chat thread containing only messages linked to saved cards
+        const savedCardIds = new Set(cardsToSave.map((c) => c.id));
+        const threadToSave = state.chatThread.filter(
+          (msg) => msg.cardId && savedCardIds.has(msg.cardId)
+        );
+
         const savedPrompt: SavedPrompt = {
           id: generateId(),
           name: finalName,
           savedAt: Date.now(),
-          chatThread: [...state.chatThread],
-          cards: Object.values(state.cards),
+          chatThread: threadToSave,
+          cards: cardsToSave,
         };
 
         const newSavedPrompts = [savedPrompt, ...state.savedPrompts].slice(
@@ -428,30 +480,48 @@ export const useSessionStore = create<SessionState>()(
       },
 
       startNewChat: () => {
-        const state = get();
-        // Save current thread as history if it has messages
-        const newHistory = [...state.chatHistory];
-        if (state.chatThread.length > 0) {
-          const firstUserMsg = state.chatThread.find(
-            (m) => m.role === 'user',
-          );
-          const summary: ThreadSummary = {
-            id: generateId(),
-            firstMessage:
-              firstUserMsg?.content ?? 'New conversation',
-            lastActivity: Date.now(),
-            messageCount: state.chatThread.length,
-          };
-          newHistory.unshift(summary);
-          if (newHistory.length > MAX_CHAT_HISTORY) newHistory.pop();
-        }
-
+        // Simply reset the active thread. The current thread is already
+        // saved in chatHistory (auto-saved on first submit).
         set({
           chatThread: [],
           cards: {},
           activeCardId: null,
-          chatHistory: newHistory,
           loading: false,
+        });
+      },
+
+      loadChatThread: (id: string) => {
+        const state = get();
+        const thread = state.chatHistory.find((t) => t.id === id);
+        if (!thread) return;
+
+        // Load the selected thread
+        const cardsRecord: Record<string, CardState> = {};
+        for (const card of thread.cards) {
+          cardsRecord[card.id] = card;
+        }
+
+        set({
+          chatThread: [...thread.chatThread],
+          cards: cardsRecord,
+          activeCardId: null,
+          loading: false,
+        });
+      },
+
+      deleteChatThread: (id: string) => {
+        const state = get();
+        set({
+          chatHistory: state.chatHistory.filter((t) => t.id !== id),
+        });
+      },
+
+      renameChatThread: (id: string, newName: string) => {
+        const state = get();
+        set({
+          chatHistory: state.chatHistory.map((t) =>
+            t.id === id ? { ...t, firstMessage: newName.slice(0, 100) } : t
+          ),
         });
       },
 

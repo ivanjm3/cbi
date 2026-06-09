@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 
 /** Supported chart visualization types */
-export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'table' | 'heatmap';
+export type ChartType = 'bar' | 'line' | 'scatter' | 'pie' | 'radar' | 'table' | 'heatmap';
 
 /** Known chart type keywords for user prompt parsing */
 export const CHART_TYPE_KEYWORDS: Record<string, ChartType> = {
@@ -23,6 +23,9 @@ export const CHART_TYPE_KEYWORDS: Record<string, ChartType> = {
   'scatter chart': 'scatter',
   'pie chart': 'pie',
   'pie graph': 'pie',
+  'radar chart': 'radar',
+  'radar graph': 'radar',
+  'spider chart': 'radar',
   'heatmap': 'heatmap',
   'heat map': 'heatmap',
   'table': 'table',
@@ -169,6 +172,9 @@ export interface SessionState {
   deleteSavedPrompt: (id: string) => void;
   startNewChat: () => void;
   clearStorageError: () => void;
+  loadChatThread: (id: string) => void;
+  deleteChatThread: (id: string) => void;
+  renameChatThread: (id: string, newName: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,4 +200,8 @@ export interface ThreadSummary {
   firstMessage: string;
   lastActivity: number;
   messageCount: number;
+  /** Full chat thread data for navigation */
+  chatThread: ChatMessage[];
+  /** Cards associated with this thread */
+  cards: CardState[];
 }

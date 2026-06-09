@@ -165,13 +165,13 @@ export function CardToolbar({
     [onExpandFullscreen],
   );
 
-  // ----- Save Prompt -----
+  // ----- Save Chat Session -----
   const handleSavePrompt = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      // Save the current session as a saved prompt using the card's query as the name
-      const promptName = card.query.slice(0, 100) || 'Untitled';
-      saveSavedPrompt(promptName);
+      // Save the current chat session (all cards in this thread)
+      const sessionName = card.query.slice(0, 100) || 'Untitled Session';
+      saveSavedPrompt(sessionName);
     },
     [card.query, saveSavedPrompt],
   );
@@ -312,13 +312,13 @@ export function CardToolbar({
           </svg>
         </button>
 
-        {/* Save Prompt */}
+        {/* Save Chat */}
         <button
           type="button"
           onClick={handleSavePrompt}
           className="p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
-          title="Save Prompt"
-          aria-label="Save Prompt"
+          title="Save Chat"
+          aria-label="Save Chat"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

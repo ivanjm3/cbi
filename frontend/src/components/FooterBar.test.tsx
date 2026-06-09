@@ -24,10 +24,10 @@ describe('FooterBar', () => {
     });
   });
 
-  it('renders the "Traceability & Explainability" label (Requirement 1.6)', () => {
+  it('renders the "Trace" label (Requirement 1.6)', () => {
     render(<FooterBar />);
     expect(
-      screen.getByText('Traceability & Explainability'),
+      screen.getByText('Trace'),
     ).toBeInTheDocument();
   });
 

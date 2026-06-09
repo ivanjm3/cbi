@@ -49,18 +49,24 @@ class BedrockClassifier:
     def classify_query_type(
         self, query_text: str, ontology_context: list[dict[str, Any]]) -> str | None:
         """Classify a query into one of the supported query types.
-        Uses a structured prompt with ontology context to determine whether
-        the query is a lookup, aggregation, or comparison.
+
+        Uses a two-tier approach:
+        1. PRIMARY: LLM classification via Bedrock Claude (best accuracy)
+        2. FALLBACK: Keyword-based heuristic if LLM is unavailable
+
+        This ensures the system NEVER returns None — queries always get
+        classified, even during Bedrock outages.
+
         Args:
             query_text: The natural language query to classify.
             ontology_context: List of resolved ontology concepts with their
                 properties, providing domain context for classification.
         Returns:
-            One of "lookup", "aggregation", "comparison", or None if
-            classification fails or is ambiguous.
+            One of "lookup", "aggregation", "comparison". Never returns None.
         """
         from src.services.cost_tracker import get_cost_tracker
         
+        # PRIMARY: LLM classification
         prompt = self._build_classification_prompt(query_text, ontology_context)
         try:
             client = self._get_client()
@@ -96,20 +102,68 @@ class BedrockClassifier:
             content = response_body.get("content", [])
             if content and len(content) > 0:
                 text = content[0].get("text", "").strip().lower()
-                return self._parse_classification(text)
-            return None
+                llm_result = self._parse_classification(text)
+                if llm_result:
+                    return llm_result
+
+            # LLM returned unparseable response — fall through to heuristic
+            logger.warning(
+                json.dumps({
+                    "service_name": "nlp_translator",
+                    "operation": "classify_query_type",
+                    "event": "llm_response_unparseable",
+                    "fallback": "heuristic",
+                })
+            )
         except Exception as e:
             logger.error(
                 json.dumps(
                     {
                         "service_name": "nlp_translator",
                         "operation": "classify_query_type",
+                        "event": "llm_classification_failed",
                         "error_type": type(e).__name__,
                         "error_message": str(e),
+                        "fallback": "heuristic",
                     }
                 )
             )
-            return None
+
+        # FALLBACK: Keyword-based heuristic classification
+        # This ensures the system never fails due to Bedrock unavailability.
+        return self._heuristic_classify(query_text)
+
+    def _heuristic_classify(self, query_text: str) -> str:
+        """Classify query type using keyword heuristics.
+
+        Used as a fallback when Bedrock is unavailable or returns
+        unparseable results. Provides reasonable accuracy for common
+        query patterns.
+
+        Args:
+            query_text: The natural language query.
+
+        Returns:
+            One of "lookup", "aggregation", "comparison".
+        """
+        text = query_text.lower()
+
+        comparison_signals = [
+            "compare", "comparison", "versus", " vs ", " vs.", "difference",
+            "between", "against", "relative to", "compared to", "contrast",
+        ]
+        aggregation_signals = [
+            "total", "sum", "average", "avg", "count", "how many",
+            "trend", "over time", "growth", "aggregate", "overall",
+            "breakdown", "distribution", "percentage", "proportion",
+            "minimum", "maximum", "median", "mean",
+        ]
+
+        if any(s in text for s in comparison_signals):
+            return "comparison"
+        if any(s in text for s in aggregation_signals):
+            return "aggregation"
+        return "lookup"  # Safe default for specific data requests
 
     def _build_classification_prompt(
         self, query_text: str, ontology_context: list[dict[str, Any]]
@@ -254,17 +308,8 @@ class NLPTranslator:
         else:
             ontology_context = self._build_ontology_context(entity_refs)
             query_type = self.classifier.classify_query_type(query_text, ontology_context)
-
-            if query_type is None:
-                return NLPError(
-                    error_code="AMBIGUOUS_INTENT",
-                    error_message=(
-                        f"Unable to classify the query type for: '{query_text}'. "
-                        "The query may be ambiguous or not match supported patterns."
-                    ),
-                    query_id=query_id,
-                )
-
+            # classify_query_type now ALWAYS returns a valid type (never None)
+            # thanks to the heuristic fallback. No error case needed here.
             self._classification_cache.put(cache_key, query_type)
 
         # Step 4: Produce StructuredIntent

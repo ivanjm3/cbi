@@ -64,7 +64,7 @@ describe('CardToolbar', () => {
     expect(screen.getByLabelText('Download CSV')).toBeInTheDocument();
     expect(screen.getByLabelText('Pin to canvas')).toBeInTheDocument();
     expect(screen.getByLabelText('Expand fullscreen')).toBeInTheDocument();
-    expect(screen.getByLabelText('Save Prompt')).toBeInTheDocument();
+    expect(screen.getByLabelText('Save Chat')).toBeInTheDocument();
     expect(screen.getByLabelText('Drag to reorder')).toBeInTheDocument();
   });
 
@@ -130,7 +130,7 @@ describe('CardToolbar', () => {
     expect(onExpand).toHaveBeenCalledTimes(1);
   });
 
-  it('saves the current session as a saved prompt when Save Prompt is clicked (Requirement 5.6)', async () => {
+  it('saves the current session as a saved chat when Save Chat is clicked (Requirement 5.6)', async () => {
     const user = userEvent.setup();
     const card = createMockCard({ query: 'Test prompt query' });
     useSessionStore.setState({
@@ -139,7 +139,7 @@ describe('CardToolbar', () => {
     });
     render(<CardToolbar card={card} />);
 
-    await user.click(screen.getByLabelText('Save Prompt'));
+    await user.click(screen.getByLabelText('Save Chat'));
 
     const state = useSessionStore.getState();
     expect(state.savedPrompts.length).toBe(1);

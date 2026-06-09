@@ -148,13 +148,16 @@ export function ChatThread() {
 
   return (
     <div
-      className="flex flex-1 min-h-0 flex-col overflow-y-auto px-4 py-6 gap-4"
+      className="flex flex-1 min-h-0 flex-col overflow-y-auto px-4 py-6 pb-24 gap-4"
       aria-label="Chat thread"
     >
       {chatThread.map((message, idx) => {
         switch (message.role) {
           case 'user':
-            return <UserMessageBubble key={message.id} message={message} />;
+            // User prompts are hidden from the main view — they are
+            // shown on each card instead (via card.query). This keeps
+            // the screen focused on visuals.
+            return null;
           case 'system':
             return <SystemResponseBlock key={message.id} message={message} index={idx} />;
           case 'error':

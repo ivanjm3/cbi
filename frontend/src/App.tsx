@@ -94,17 +94,17 @@ function App() {
       <Sidebar />
 
       {/* Main content (fluid center) */}
-      <main className="flex flex-1 min-w-0 flex-col min-h-0">
+      <main className="relative flex flex-1 min-w-0 flex-col min-h-0">
         {/* Non-blocking storage error banner (Req 10.5) */}
         <StorageErrorBanner />
 
-        {/* Chat thread — takes up all available space */}
+        {/* Chat thread — takes up all available space, with bottom padding for floating input */}
         <ChatThread />
 
         {/* Footer bar — traceability toggle (Req 3.1) */}
         <FooterBar />
 
-        {/* Chat input — fixed at bottom (Req 2.2) */}
+        {/* Chat input — floating at bottom center (Req 2.2) */}
         <ChatInput />
       </main>
 

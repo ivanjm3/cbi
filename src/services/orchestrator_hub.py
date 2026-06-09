@@ -269,8 +269,10 @@ class OrchestratorHub:
     ) -> OrchestratorResponse | OrchestratorError:
         """Process a structured intent: check cache, resolve agents, dispatch.
 
-        Uses direct dispatch to resolved agents (entity_ref matching already
-        done by NLP Translator). No LLM call needed for routing.
+        Uses AGENTIC dispatch for multi-domain queries (entity_refs span
+        multiple agent domains) and direct dispatch for single-domain queries.
+        The Strands Agent reasons about which agents to call and how to
+        merge results for complex cross-domain queries.
 
         Args:
             intent: The structured intent from the NLP Translator.
@@ -307,8 +309,22 @@ class OrchestratorHub:
                 query_id=intent.query_id,
             )
 
-        # Step 3: Direct dispatch to all resolved agents (Requirement 4.4)
-        return self._direct_dispatch(intent, resolved_agents, cache_key)
+        # Step 3: Choose dispatch strategy based on query complexity
+        # AGENTIC: For multi-agent queries, let the LLM reason about routing.
+        # DIRECT: For single-agent queries, skip the LLM for speed.
+        if len(resolved_agents) > 1 and intent.query_type == "comparison":
+            # Multi-domain comparison — use agentic dispatch
+            logger.info(json.dumps({
+                "service_name": "orchestrator_hub",
+                "operation": "process_intent",
+                "event": "agentic_dispatch",
+                "query_id": str(intent.query_id),
+                "resolved_agent_count": len(resolved_agents),
+            }))
+            return self._agent_dispatch(intent, resolved_agents, cache_key)
+        else:
+            # Single-domain or simple query — fast direct dispatch
+            return self._direct_dispatch(intent, resolved_agents, cache_key)
 
     def _agent_dispatch(
         self,

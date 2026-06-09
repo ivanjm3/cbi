@@ -141,7 +141,7 @@ export function ChatInput() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex items-center gap-2 border-t border-border-default bg-bg-secondary px-4 py-3"
+      className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex w-[calc(100%-3rem)] max-w-3xl items-center gap-2 rounded-2xl border border-border-default bg-bg-secondary/95 px-4 py-3 shadow-lg backdrop-blur-sm"
       aria-label="Chat input"
     >
       {/* Voice input button — hidden if Web Speech API unsupported */}
