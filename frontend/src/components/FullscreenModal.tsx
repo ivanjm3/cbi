@@ -98,8 +98,10 @@ export function FullscreenModal({ card, onClose }: FullscreenModalProps) {
         </div>
 
         {/* Chart content expanded to fill available space */}
-        <div className="flex-1 min-h-0 p-6">
-          <ChartRenderer renderedOutput={card.renderedOutput} />
+        <div className="flex-1 min-h-0 p-6 flex items-center justify-center">
+          <div className="w-full h-full max-h-full" data-fullscreen-chart="true">
+            <ChartRenderer renderedOutput={card.renderedOutput} fullscreen />
+          </div>
         </div>
       </div>
     </div>

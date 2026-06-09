@@ -89,11 +89,47 @@ export function CardToolbar({
         if (Array.isArray(nested.labels) && Array.isArray(nested.datasets)) {
           const labels = nested.labels as string[];
           const datasets = nested.datasets as Array<{ label?: string; data?: unknown[] }>;
-          headers = ['Label', ...datasets.map((ds) => ds.label ?? 'Value')];
-          rows = labels.map((label: string, i: number) => [
-            String(label),
-            ...datasets.map((ds) => String(ds.data?.[i] ?? '')),
-          ]);
+
+          // Check if datasets use object-format data (scatter/bubble: [{x, y}, ...])
+          const firstDataPoint = datasets[0]?.data?.[0];
+          if (firstDataPoint && typeof firstDataPoint === 'object' && !Array.isArray(firstDataPoint)) {
+            // Object-format data points (scatter: {x,y}, bubble: {x,y,r})
+            const samplePoint = firstDataPoint as Record<string, unknown>;
+            const pointKeys = Object.keys(samplePoint); // e.g., ['x', 'y'] or ['x', 'y', 'r']
+            headers = ['Dataset', ...pointKeys];
+            for (const ds of datasets) {
+              const dsLabel = ds.label ?? 'Value';
+              for (const point of (ds.data ?? []) as Record<string, unknown>[]) {
+                if (point && typeof point === 'object') {
+                  rows.push([dsLabel, ...pointKeys.map((k) => String(point[k] ?? ''))]);
+                }
+              }
+            }
+          } else {
+            // Standard label-based data
+            headers = ['Label', ...datasets.map((ds) => ds.label ?? 'Value')];
+            rows = labels.map((label: string, i: number) => [
+              String(label),
+              ...datasets.map((ds) => String(ds.data?.[i] ?? '')),
+            ]);
+          }
+        } else if (Array.isArray(nested.datasets)) {
+          // No labels but has datasets (scatter/bubble without labels)
+          const datasets = nested.datasets as Array<{ label?: string; data?: unknown[] }>;
+          const firstDataPoint = datasets[0]?.data?.[0];
+          if (firstDataPoint && typeof firstDataPoint === 'object' && !Array.isArray(firstDataPoint)) {
+            const samplePoint = firstDataPoint as Record<string, unknown>;
+            const pointKeys = Object.keys(samplePoint);
+            headers = ['Dataset', ...pointKeys];
+            for (const ds of datasets) {
+              const dsLabel = ds.label ?? 'Value';
+              for (const point of (ds.data ?? []) as Record<string, unknown>[]) {
+                if (point && typeof point === 'object') {
+                  rows.push([dsLabel, ...pointKeys.map((k) => String(point[k] ?? ''))]);
+                }
+              }
+            }
+          }
         }
       }
 
@@ -103,11 +139,27 @@ export function CardToolbar({
         if (Array.isArray(topLevel.labels) && Array.isArray(topLevel.datasets)) {
           const labels = topLevel.labels as string[];
           const datasets = topLevel.datasets as Array<{ label?: string; data?: unknown[] }>;
-          headers = ['Label', ...datasets.map((ds) => ds.label ?? 'Value')];
-          rows = labels.map((label: string, i: number) => [
-            String(label),
-            ...datasets.map((ds) => String(ds.data?.[i] ?? '')),
-          ]);
+
+          const firstDataPoint = datasets[0]?.data?.[0];
+          if (firstDataPoint && typeof firstDataPoint === 'object' && !Array.isArray(firstDataPoint)) {
+            const samplePoint = firstDataPoint as Record<string, unknown>;
+            const pointKeys = Object.keys(samplePoint);
+            headers = ['Dataset', ...pointKeys];
+            for (const ds of datasets) {
+              const dsLabel = ds.label ?? 'Value';
+              for (const point of (ds.data ?? []) as Record<string, unknown>[]) {
+                if (point && typeof point === 'object') {
+                  rows.push([dsLabel, ...pointKeys.map((k) => String(point[k] ?? ''))]);
+                }
+              }
+            }
+          } else {
+            headers = ['Label', ...datasets.map((ds) => ds.label ?? 'Value')];
+            rows = labels.map((label: string, i: number) => [
+              String(label),
+              ...datasets.map((ds) => String(ds.data?.[i] ?? '')),
+            ]);
+          }
         }
       }
 

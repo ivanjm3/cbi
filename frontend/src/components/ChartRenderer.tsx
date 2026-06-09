@@ -47,6 +47,8 @@ ChartJS.register(
 interface ChartRendererProps {
   renderedOutput: RenderedOutput;
   userRequestedChartType?: import('../types').ChartType | null;
+  /** When true, chart fills available space without maintaining aspect ratio */
+  fullscreen?: boolean;
 }
 
 /**
@@ -106,16 +108,20 @@ function extractTableData(chartData: Record<string, unknown> | null | undefined)
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function RenderChartJs({ config }: { config: { type: string; data: Record<string, unknown>; options: Record<string, unknown> } }) {
+function RenderChartJs({ config, fullscreen }: { config: { type: string; data: Record<string, unknown>; options: Record<string, unknown> }; fullscreen?: boolean }) {
   // react-chartjs-2's <Chart> component accepts type, data, and options directly
   const chartOptions = useMemo(() => ({
     ...config.options,
     responsive: true,
-    maintainAspectRatio: true,
-  }), [config.options]);
+    maintainAspectRatio: !fullscreen,
+  }), [config.options, fullscreen]);
 
   return (
-    <div className="w-full" style={{ minHeight: '300px' }} aria-label={`${config.type} chart`}>
+    <div
+      className={fullscreen ? 'w-full h-full' : 'w-full'}
+      style={fullscreen ? undefined : { minHeight: '300px' }}
+      aria-label={`${config.type} chart`}
+    >
       <Chart
         type={config.type as any}
         data={config.data as any}
@@ -205,7 +211,7 @@ function RenderError({ message }: { message: string }) {
 // Main ChartRenderer
 // ---------------------------------------------------------------------------
 
-export function ChartRenderer({ renderedOutput }: ChartRendererProps) {
+export function ChartRenderer({ renderedOutput, fullscreen }: ChartRendererProps) {
   // Handle text-only output
   if (renderedOutput.output_type === 'text' || (!renderedOutput.chart_data && renderedOutput.text_content)) {
     const textContent = renderedOutput.text_content ?? renderedOutput.description ?? '';
@@ -220,7 +226,7 @@ export function ChartRenderer({ renderedOutput }: ChartRendererProps) {
   // Try to extract a Chart.js config
   const chartConfig = extractChartJsConfig(renderedOutput.chart_data);
   if (chartConfig) {
-    return <RenderChartJs config={chartConfig} />;
+    return <RenderChartJs config={chartConfig} fullscreen={fullscreen} />;
   }
 
   // Try table format
