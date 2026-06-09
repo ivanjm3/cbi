@@ -414,26 +414,17 @@ export const useSessionStore = create<SessionState>()(
         const state = get();
         const finalName = name.slice(0, 100);
 
-        // Only save pinned cards (min 1, max 6).
-        // A "saved chat" is the user's bookmarked session containing
-        // only the visualizations they explicitly pinned.
-        const pinnedCards = Object.values(state.cards).filter((c) => c.pinned);
-        const cardsToSave = pinnedCards.length > 0
-          ? pinnedCards.slice(0, 6)
-          : Object.values(state.cards).slice(0, 1); // At least 1 card if none pinned
+        // Save all cards in the current session (up to 6).
+        const allCards = Object.values(state.cards).slice(0, 6);
 
-        // Build a minimal chat thread containing only messages linked to saved cards
-        const savedCardIds = new Set(cardsToSave.map((c) => c.id));
-        const threadToSave = state.chatThread.filter(
-          (msg) => msg.cardId && savedCardIds.has(msg.cardId)
-        );
+        if (allCards.length === 0) return; // Nothing to save
 
         const savedPrompt: SavedPrompt = {
           id: generateId(),
           name: finalName,
           savedAt: Date.now(),
-          chatThread: threadToSave,
-          cards: cardsToSave,
+          chatThread: [...state.chatThread],
+          cards: allCards,
         };
 
         const newSavedPrompts = [savedPrompt, ...state.savedPrompts].slice(
