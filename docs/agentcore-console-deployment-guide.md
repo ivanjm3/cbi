@@ -1,24 +1,23 @@
-# Deploying the Visualization Agent to Amazon Bedrock AgentCore via Console
+# Deploying the Visualization Agent to Amazon Bedrock via Console (Return Control)
 
-This guide covers deploying the Visualization Renderer agent (the `viz_agent`) to Amazon Bedrock AgentCore using the AWS Management Console, and integrating the deployed agent with the existing Conversational BI project.
+This guide covers deploying the Visualization Renderer agent to Amazon Bedrock using the **Return Control** pattern — no Lambda function, no IAM role required. The agent returns tool call parameters directly to your application, which handles chart validation locally.
 
-> **Why Console?** The locally installed AWS CLI is not the latest version and may lack AgentCore commands. The console provides full access without CLI version dependencies.
+> **Why Return Control?** Eliminates the need for Lambda deployment, `iam:PassRole`, and `iam:CreateRole` permissions. Your PowerUserAccess SSO role with `bedrock:*` permissions is all you need.
 
 ---
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
-2. [Prepare the Agent Code](#prepare-the-agent-code)
+2. [Architecture Overview](#architecture-overview)
 3. [Create the Agent in Bedrock Console](#create-the-agent-in-bedrock-console)
-4. [Define the Action Group (emit_chart tool)](#define-the-action-group-emit_chart-tool)
-5. [Configure the Lambda Function](#configure-the-lambda-function)
-6. [Test the Agent in Console](#test-the-agent-in-console)
-7. [Create an Agent Alias for Production](#create-an-agent-alias-for-production)
-8. [Integrate with the Project Backend](#integrate-with-the-project-backend)
-9. [Integrate with the Frontend](#integrate-with-the-frontend)
-10. [Environment Configuration](#environment-configuration)
-11. [Rollback Strategy](#rollback-strategy)
+4. [Define the Action Group with Return Control](#define-the-action-group-with-return-control)
+5. [Test the Agent in Console](#test-the-agent-in-console)
+6. [Create an Agent Alias for Production](#create-an-agent-alias-for-production)
+7. [Integrate with the Project Backend](#integrate-with-the-project-backend)
+8. [Integrate with the Frontend](#integrate-with-the-frontend)
+9. [Environment Configuration](#environment-configuration)
+10. [Rollback Strategy](#rollback-strategy)
 
 ---
 
@@ -26,120 +25,112 @@ This guide covers deploying the Visualization Renderer agent (the `viz_agent`) t
 
 - AWS account with Bedrock access enabled in `us-east-1`
 - Bedrock model access granted for `us.anthropic.claude-3-5-haiku-20241022-v1:0`
-- IAM permissions: `bedrock:*`, `lambda:*`, `iam:CreateRole`, `iam:AttachRolePolicy`, `s3:GetObject`
+- IAM permissions: `bedrock:*` (that's it — no Lambda or IAM role permissions needed)
 - The S3 bucket `visualization-poc-bucket` with data sources already uploaded
 - Existing Bedrock Guardrail ID: `joes1p3j7sa4` (DRAFT version)
+- Python 3.12+ with `boto3` installed locally for the backend integration
 
 ---
 
-## Prepare the Agent Code
+## Architecture Overview
 
-Before going to the console, package the visualization logic as a Lambda function.
-
-### Lambda Handler (`lambda_function.py`)
-
-```python
-"""
-Lambda handler for the Visualization Agent's emit_chart action group.
-Deployed as the backing Lambda for the Bedrock Agent action group.
-"""
-import json
-import logging
-from typing import Any
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-
-def lambda_handler(event: dict, context: Any) -> dict:
-    """Handle Bedrock Agent action group invocations."""
-    logger.info(json.dumps({"event": "action_group_invoked", "body": event}))
-
-    action_group = event.get("actionGroup", "")
-    api_path = event.get("apiPath", "")
-    parameters = event.get("parameters", [])
-    request_body = event.get("requestBody", {})
-
-    # Extract parameters from the agent's tool call
-    params = {}
-    for param in parameters:
-        params[param["name"]] = param["value"]
-
-    # Also check requestBody for POST-style invocations
-    if request_body and "content" in request_body:
-        body_content = request_body["content"].get("application/json", {})
-        if "properties" in body_content:
-            for prop in body_content["properties"]:
-                params[prop["name"]] = prop["value"]
-
-    if api_path == "/emit_chart" or action_group == "emit_chart_action":
-        return _handle_emit_chart(params)
-    else:
-        return _build_response(400, {"error": f"Unknown action: {api_path}"})
-
-
-def _handle_emit_chart(params: dict) -> dict:
-    """Validate and return the chart configuration."""
-    chart_config_str = params.get("chart_config", "")
-    title = params.get("title", "Untitled Chart")
-    description = params.get("description", "")
-
-    # Validate JSON
-    try:
-        chart_config = json.loads(chart_config_str)
-    except (json.JSONDecodeError, TypeError) as exc:
-        return _build_response(400, {
-            "error": f"Invalid JSON in chart_config: {exc}",
-            "title": title,
-            "description": description,
-        })
-
-    # Validate required fields
-    if "type" not in chart_config:
-        return _build_response(400, {
-            "error": "chart_config must contain a 'type' field",
-            "title": title,
-            "description": description,
-        })
-
-    if "data" not in chart_config:
-        return _build_response(400, {
-            "error": "chart_config must contain a 'data' field",
-            "title": title,
-            "description": description,
-        })
-
-    # Success — return validated chart spec
-    result = {
-        "chart_config": chart_config,
-        "title": title,
-        "description": description,
-    }
-
-    return _build_response(200, result)
-
-
-def _build_response(status_code: int, body: dict) -> dict:
-    """Build the response in Bedrock Agent action group format."""
-    return {
-        "messageVersion": "1.0",
-        "response": {
-            "actionGroup": "emit_chart_action",
-            "apiPath": "/emit_chart",
-            "httpMethod": "POST",
-            "httpStatusCode": status_code,
-            "responseBody": {
-                "application/json": {
-                    "body": json.dumps(body)
-                }
-            }
-        }
-    }
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     YOUR APPLICATION                         │
+│                                                             │
+│  1. Send prompt to agent  ──────►  Bedrock Agent            │
+│                                    (Claude 3.5 Haiku)       │
+│                                         │                   │
+│  3. Receive returnControl  ◄────────────┘                   │
+│     (chart_config, title,     Agent decides to call         │
+│      description params)      emit_chart tool               │
+│            │                                                │
+│  4. Validate & render chart locally                         │
+│            │                                                │
+│  5. Return chart to frontend                                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### OpenAPI Schema (`emit_chart_openapi.json`)
+**Key difference from Lambda approach:** Instead of the agent invoking a Lambda to process the tool call, it returns the parameters directly to your calling code. Your app handles validation and rendering.
 
-This defines the tool interface that Bedrock Agent uses:
+---
+
+## Create the Agent in Bedrock Console
+
+### Step 1: Navigate to Bedrock Agents
+
+1. Open the [AWS Management Console](https://console.aws.amazon.com)
+2. Navigate to **Amazon Bedrock** → **Agents** (left sidebar under "Orchestration")
+3. Click **Create Agent**
+
+### Step 2: Configure Agent Details
+
+| Field | Value |
+|-------|-------|
+| **Agent name** | `visualization-agent` |
+| **Description** | `Generates Chart.js configurations from tabular data using BI reasoning` |
+| **Agent resource role** | Create a new service role (auto-created by Bedrock — no manual IAM needed) |
+| **Foundation model** | `Anthropic > Claude 3.5 Haiku` (`us.anthropic.claude-3-5-haiku-20241022-v1:0`) |
+| **Idle session timeout** | 30 minutes |
+
+> **Note:** Bedrock automatically creates the agent's service role when you select "Create and use a new service role." This does NOT require `iam:CreateRole` from you — Bedrock's service handles it.
+
+### Step 3: Set the Agent Instructions
+
+Paste the following into the **Instructions for the Agent** field:
+
+```
+You are a data visualization expert for a conversational BI system. Your job is to analyze tabular data and the user's original query, then produce the most insightful Chart.js v4 configuration by calling emit_chart exactly ONCE.
+
+Rules:
+1. ALWAYS call emit_chart with a complete, valid Chart.js JSON config.
+2. The chart_config MUST contain: "type", "data" (with "labels" and "datasets"), and "options".
+3. Choose the chart type based on data shape and user intent:
+   - Time-series data (quarters, months, years) → "line"
+   - Comparison with ≤6 groups and single metric → "pie" or "doughnut"
+   - Comparison with many groups or multiple metrics → "bar"
+   - Two numeric columns suggesting correlation → "scatter"
+   - Single aggregation result → provide a styled "bar" with single data point
+4. Use rich styling: colors, borderWidth, tension for curves, animation, responsive=true.
+5. The description field must contain 2-3 sentences of BI insight explaining what the data reveals.
+6. If the user explicitly requests a chart type (e.g., "show me a pie chart"), honor that request.
+7. Never return text-only responses — always call emit_chart.
+```
+
+### Step 4: Attach Guardrails (Optional but Recommended)
+
+1. Under **Guardrails**, click **Add guardrail**
+2. Select guardrail ID: `joes1p3j7sa4`
+3. Version: `DRAFT`
+
+### Step 5: Click **Next** to proceed to Action Groups
+
+---
+
+## Define the Action Group with Return Control
+
+This is the key difference — instead of pointing to a Lambda, you select **Return Control**.
+
+### Step 1: Add Action Group
+
+1. In the agent builder, go to **Action groups**
+2. Click **Add action group**
+
+### Step 2: Configure Action Group
+
+| Field | Value |
+|-------|-------|
+| **Action group name** | `emit_chart_action` |
+| **Description** | `Emits a validated Chart.js configuration` |
+| **Action group type** | Define with API schemas |
+| **API schema** | Upload or paste the OpenAPI schema (below) |
+| **Action group invocation** | Select **Return Control** (NOT Lambda function) |
+
+> **Critical:** Under "Action group invocation", choose **"Return control to the user/calling application"** instead of "Lambda function." This is what eliminates the IAM requirement.
+
+### Step 3: Upload the OpenAPI Schema
+
+Save this as `emit_chart_openapi.json` and upload it:
 
 ```json
 {
@@ -202,21 +193,6 @@ This defines the tool interface that Bedrock Agent uses:
                 }
               }
             }
-          },
-          "400": {
-            "description": "Invalid chart configuration",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": { "type": "string" },
-                    "title": { "type": "string" },
-                    "description": { "type": "string" }
-                  }
-                }
-              }
-            }
           }
         }
       }
@@ -225,147 +201,22 @@ This defines the tool interface that Bedrock Agent uses:
 }
 ```
 
----
+### Step 4: Save and Prepare
 
-## Create the Agent in Bedrock Console
-
-### Step 1: Navigate to Bedrock Agents
-
-1. Open the [AWS Management Console](https://console.aws.amazon.com)
-2. Navigate to **Amazon Bedrock** → **Agents** (left sidebar under "Orchestration")
-3. Click **Create Agent**
-
-### Step 2: Configure Agent Details
-
-| Field | Value |
-|-------|-------|
-| **Agent name** | `visualization-agent` |
-| **Description** | `Generates Chart.js configurations from tabular data using BI reasoning` |
-| **Agent resource role** | Create a new service role (or select existing) |
-| **Foundation model** | `Anthropic > Claude 3.5 Haiku` (`us.anthropic.claude-3-5-haiku-20241022-v1:0`) |
-| **Idle session timeout** | 30 minutes |
-
-### Step 3: Set the Agent Instructions
-
-Paste the following into the **Instructions for the Agent** field:
-
-```
-You are a data visualization expert for a conversational BI system. Your job is to analyze tabular data and the user's original query, then produce the most insightful Chart.js v4 configuration by calling emit_chart exactly ONCE.
-
-Rules:
-1. ALWAYS call emit_chart with a complete, valid Chart.js JSON config.
-2. The chart_config MUST contain: "type", "data" (with "labels" and "datasets"), and "options".
-3. Choose the chart type based on data shape and user intent:
-   - Time-series data (quarters, months, years) → "line"
-   - Comparison with ≤6 groups and single metric → "pie" or "doughnut"
-   - Comparison with many groups or multiple metrics → "bar"
-   - Two numeric columns suggesting correlation → "scatter"
-   - Single aggregation result → provide a styled "bar" with single data point
-4. Use rich styling: colors, borderWidth, tension for curves, animation, responsive=true.
-5. The description field must contain 2-3 sentences of BI insight explaining what the data reveals.
-6. If the user explicitly requests a chart type (e.g., "show me a pie chart"), honor that request.
-7. Never return text-only responses — always call emit_chart.
-```
-
-### Step 4: Attach Guardrails (Optional but Recommended)
-
-1. Under **Guardrails**, click **Add guardrail**
-2. Select guardrail ID: `joes1p3j7sa4`
-3. Version: `DRAFT`
-
-### Step 5: Click **Next** to proceed to Action Groups
-
----
-
-## Define the Action Group (emit_chart tool)
-
-### Step 1: Add Action Group
-
-1. In the agent builder, go to **Action groups**
-2. Click **Add action group**
-
-### Step 2: Configure Action Group
-
-| Field | Value |
-|-------|-------|
-| **Action group name** | `emit_chart_action` |
-| **Description** | `Emits a validated Chart.js configuration` |
-| **Action group type** | Define with API schemas |
-| **API schema** | Upload the `emit_chart_openapi.json` file (from above) |
-| **Action group invocation** | Select **Lambda function** |
-
-### Step 3: Create or Select Lambda
-
-- If you haven't created the Lambda yet, click **Create a new Lambda function** — this opens the Lambda console in a new tab
-- Otherwise, select the existing function (see next section)
-
----
-
-## Configure the Lambda Function
-
-### Step 1: Create the Lambda Function
-
-1. Open the [Lambda Console](https://console.aws.amazon.com/lambda)
-2. Click **Create function**
-3. Select **Author from scratch**
-
-| Field | Value |
-|-------|-------|
-| **Function name** | `viz-agent-emit-chart` |
-| **Runtime** | Python 3.12 |
-| **Architecture** | arm64 (cost-efficient) |
-| **Execution role** | Create a new role with basic Lambda permissions |
-
-4. Click **Create function**
-
-### Step 2: Add the Code
-
-1. In the Lambda editor, replace the default code with the `lambda_function.py` content from the [Prepare the Agent Code](#prepare-the-agent-code) section
-2. Click **Deploy**
-
-### Step 3: Add Resource-Based Policy for Bedrock
-
-Bedrock needs permission to invoke this Lambda. In the Lambda console:
-
-1. Go to **Configuration** → **Permissions**
-2. Scroll to **Resource-based policy statements**
-3. Click **Add permissions**
-
-| Field | Value |
-|-------|-------|
-| **Statement ID** | `AllowBedrockAgentInvoke` |
-| **Principal** | `bedrock.amazonaws.com` |
-| **Source ARN** | `arn:aws:bedrock:us-east-1:<ACCOUNT_ID>:agent/*` |
-| **Action** | `lambda:InvokeFunction` |
-
-Replace `<ACCOUNT_ID>` with your AWS account ID (visible in the console top-right dropdown).
-
-### Step 4: Configure Timeout
-
-1. Go to **Configuration** → **General configuration**
-2. Set **Timeout** to `30 seconds` (chart generation validation may take time with large configs)
-
-### Step 5: Return to Bedrock Agent
-
-Go back to the Bedrock Agent builder tab and select the `viz-agent-emit-chart` function in the action group's Lambda field.
+1. Click **Save** on the action group
+2. Click **Prepare** (top-right of the agent builder)
+3. Wait for status to show **Prepared**
 
 ---
 
 ## Test the Agent in Console
 
-### Step 1: Prepare the Agent
-
-1. In the Bedrock Agent builder, click **Prepare** (top-right)
-2. Wait for status to show **Prepared**
-
-### Step 2: Open the Test Window
+### Step 1: Open the Test Window
 
 1. Click **Test** (top-right, next to Prepare)
 2. The test chat panel opens on the right side
 
-### Step 3: Send a Test Prompt
-
-Paste a prompt like:
+### Step 2: Send a Test Prompt
 
 ```
 Here is tabular data from a BI query. The user asked: "show me quarterly sales revenue"
@@ -385,14 +236,20 @@ Data rows:
 Generate a Chart.js visualization for this data.
 ```
 
-### Step 4: Verify Response
+### Step 3: Verify Response
 
-The agent should:
-- Call the `emit_chart` action group
-- Return a valid Chart.js JSON config with type "line" or "bar"
-- Include a descriptive title and BI insight
+With Return Control, the test console will show the agent attempting to call `emit_chart` and display the parameters it would pass. You'll see something like:
 
-If the agent responds with text instead of calling the tool, update the instructions to be more forceful about tool use, then **Prepare** again.
+```
+Action Group: emit_chart_action
+API Path: /emit_chart
+Parameters:
+  - chart_config: {"type": "line", "data": {...}, "options": {...}}
+  - title: "Quarterly Sales Revenue by Region"
+  - description: "Revenue shows consistent growth..."
+```
+
+> **Note:** In the console test, Return Control actions show as "function call" outputs. The actual processing happens in your application code (next section).
 
 ---
 
@@ -423,46 +280,204 @@ You'll need both for the integration code.
 
 ## Integrate with the Project Backend
 
-The goal is to replace the local Strands Agent call in `visualization_renderer.py` with a Bedrock Agent Runtime invocation.
+With Return Control, your application receives the agent's tool call parameters directly and processes them locally. No Lambda involved.
 
-### Option A: Replace the Strands Agent in `visualization_renderer.py`
-
-Add a new method that calls the deployed AgentCore agent instead of the local Strands agent:
+### Backend Client: `src/services/agentcore_client.py`
 
 ```python
-# Add to src/services/visualization_renderer.py
+"""
+Client for invoking the Visualization Agent via Bedrock Return Control.
+No Lambda required — the agent returns tool call params directly to this code.
+"""
+import json
+import logging
+import uuid
+from typing import Any
 
 import boto3
-import uuid
 
-# Configuration for deployed agent
-AGENTCORE_AGENT_ID = "YOUR_AGENT_ID"       # From console
-AGENTCORE_ALIAS_ID = "YOUR_ALIAS_ID"       # From console (prod alias)
-AGENTCORE_REGION = "us-east-1"
-
-bedrock_agent_runtime = boto3.client(
-    "bedrock-agent-runtime",
-    region_name=AGENTCORE_REGION,
-)
+logger = logging.getLogger(__name__)
 
 
-async def _agentcore_render(
-    self,
+class AgentCoreVizClient:
+    """
+    Invokes the Bedrock Agent and handles Return Control responses.
+    
+    Flow:
+    1. Send prompt to agent
+    2. Agent decides to call emit_chart → returns control with params
+    3. We validate the chart_config locally
+    4. Return the validated result
+    """
+
+    def __init__(self, agent_id: str, alias_id: str, region: str = "us-east-1"):
+        self.agent_id = agent_id
+        self.alias_id = alias_id
+        self._client = boto3.client("bedrock-agent-runtime", region_name=region)
+
+    def invoke(self, prompt: str) -> dict[str, Any] | None:
+        """
+        Send a prompt to the viz agent and return the chart spec.
+        
+        Returns:
+            dict with keys: chart_config (parsed), title, description
+            None on failure
+        """
+        session_id = str(uuid.uuid4())
+
+        try:
+            response = self._client.invoke_agent(
+                agentId=self.agent_id,
+                agentAliasId=self.alias_id,
+                sessionId=session_id,
+                inputText=prompt,
+            )
+
+            # Process the event stream
+            return self._process_response_stream(response)
+
+        except Exception as exc:
+            logger.error(json.dumps({
+                "event": "agentcore_viz_invoke_failed",
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }))
+            return None
+
+    def _process_response_stream(self, response: dict) -> dict[str, Any] | None:
+        """
+        Process the streaming response from invoke_agent.
+        
+        With Return Control, we look for 'returnControl' events that contain
+        the agent's tool call parameters.
+        """
+        for event in response.get("completion", []):
+            # Return Control event — the agent wants to call emit_chart
+            if "returnControl" in event:
+                return self._handle_return_control(event["returnControl"])
+
+            # Text chunk — agent responded with text instead of tool call
+            if "chunk" in event:
+                chunk_text = event["chunk"].get("bytes", b"").decode("utf-8")
+                logger.warning(json.dumps({
+                    "event": "agent_returned_text_not_tool",
+                    "text_preview": chunk_text[:200],
+                }))
+
+        return None
+
+    def _handle_return_control(self, return_control: dict) -> dict[str, Any] | None:
+        """
+        Extract and validate parameters from the Return Control event.
+        
+        The event structure looks like:
+        {
+            "invocationInputs": [{
+                "apiInvocationInput": {
+                    "actionGroup": "emit_chart_action",
+                    "apiPath": "/emit_chart",
+                    "httpMethod": "POST",
+                    "requestBody": {
+                        "content": {
+                            "application/json": [
+                                {"name": "chart_config", "type": "string", "value": "..."},
+                                {"name": "title", "type": "string", "value": "..."},
+                                {"name": "description", "type": "string", "value": "..."}
+                            ]
+                        }
+                    }
+                }
+            }]
+        }
+        """
+        invocation_inputs = return_control.get("invocationInputs", [])
+        if not invocation_inputs:
+            logger.warning("Return control event has no invocation inputs")
+            return None
+
+        # Get the first invocation (we only have one action group)
+        invocation = invocation_inputs[0]
+        api_input = invocation.get("apiInvocationInput", {})
+
+        # Extract parameters from the request body
+        request_body = api_input.get("requestBody", {})
+        content = request_body.get("content", {})
+        json_params = content.get("application/json", [])
+
+        # Build params dict
+        params = {}
+        for param in json_params:
+            params[param["name"]] = param["value"]
+
+        # Validate and parse chart_config
+        return self._validate_chart_config(params)
+
+    def _validate_chart_config(self, params: dict) -> dict[str, Any] | None:
+        """
+        Validate the chart_config JSON — same logic that was in the Lambda.
+        Now runs locally in your application.
+        """
+        chart_config_str = params.get("chart_config", "")
+        title = params.get("title", "Untitled Chart")
+        description = params.get("description", "")
+
+        # Parse JSON
+        try:
+            chart_config = json.loads(chart_config_str)
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.error(json.dumps({
+                "event": "invalid_chart_config_json",
+                "error": str(exc),
+            }))
+            return None
+
+        # Validate required fields
+        if "type" not in chart_config:
+            logger.error("chart_config missing 'type' field")
+            return None
+
+        if "data" not in chart_config:
+            logger.error("chart_config missing 'data' field")
+            return None
+
+        return {
+            "chart_config": chart_config,
+            "title": title,
+            "description": description,
+        }
+```
+
+### Usage in `visualization_renderer.py`
+
+```python
+import os
+from src.services.agentcore_client import AgentCoreVizClient
+
+# Configuration
+AGENT_ID = os.environ.get("AGENTCORE_VIZ_AGENT_ID", "")
+ALIAS_ID = os.environ.get("AGENTCORE_VIZ_ALIAS_ID", "")
+USE_AGENTCORE = os.environ.get("USE_AGENTCORE_VIZ", "false").lower() == "true"
+
+# Initialize client
+viz_client = AgentCoreVizClient(agent_id=AGENT_ID, alias_id=ALIAS_ID)
+
+
+async def render_chart(
     normalized_payload: dict,
     query_type: str,
     query_text: str,
     stats_text: str,
-    requested_chart_type: str | None,
-) -> RenderedOutput:
-    """Invoke the deployed Bedrock AgentCore visualization agent."""
+    requested_chart_type: str | None = None,
+) -> dict:
+    """Render a chart using the Bedrock Agent with Return Control."""
     
-    # Build the prompt (same format as local Strands agent)
+    # Build prompt
     columns = normalized_payload.get("columns", [])
     rows = normalized_payload.get("rows", [])
-    sample_rows = rows[:15]  # Limit context size
+    sample_rows = rows[:15]
 
     prompt_parts = [
-        f"User query: \"{query_text}\"",
+        f'User query: "{query_text}"',
         f"Query type: {query_type}",
         f"Columns: {json.dumps(columns)}",
         f"Data rows ({len(rows)} total, showing first {len(sample_rows)}):",
@@ -475,227 +490,58 @@ async def _agentcore_render(
         )
     prompt_parts.append("\nGenerate a Chart.js visualization by calling emit_chart.")
 
-    input_text = "\n".join(prompt_parts)
-    session_id = str(uuid.uuid4())
+    prompt = "\n".join(prompt_parts)
 
-    try:
-        response = bedrock_agent_runtime.invoke_agent(
-            agentId=AGENTCORE_AGENT_ID,
-            agentAliasId=AGENTCORE_ALIAS_ID,
-            sessionId=session_id,
-            inputText=input_text,
-        )
+    # Invoke agent — returns parsed chart spec directly (no Lambda)
+    result = viz_client.invoke(prompt)
 
-        # Parse the streaming response
-        completion = ""
-        for event in response["completion"]:
-            if "chunk" in event:
-                chunk_bytes = event["chunk"].get("bytes", b"")
-                completion += chunk_bytes.decode("utf-8")
-
-        # Extract chart spec from the response
-        chart_spec = self._extract_emit_chart(completion)
-        if chart_spec and "chart_config" in chart_spec:
-            return self._build_rendered_output(chart_spec, normalized_payload, stats_text)
-
-        # If agent didn't produce valid emit_chart, fall back
-        logger.warning(json.dumps({
-            "event": "agentcore_emit_chart_not_found",
-            "response_length": len(completion),
-        }))
-        return self._deterministic_render(
-            normalized_payload, query_type, query_text, stats_text, requested_chart_type
-        )
-
-    except Exception as exc:
-        logger.error(json.dumps({
-            "event": "agentcore_invoke_failed",
-            "error": str(exc),
-        }))
-        return self._deterministic_render(
-            normalized_payload, query_type, query_text, stats_text, requested_chart_type
-        )
-```
-
-### Option B: Create a Standalone Integration Module
-
-If you prefer to keep the renderer clean, create a separate module:
-
-**`src/services/agentcore_client.py`**
-
-```python
-"""Client for invoking the Visualization Agent deployed on Bedrock AgentCore."""
-import json
-import logging
-import uuid
-from typing import Any
-
-import boto3
-
-from src.config import settings
-
-logger = logging.getLogger(__name__)
-
-# AgentCore configuration — set these via environment or config
-AGENT_ID = settings.get("AGENTCORE_VIZ_AGENT_ID", "")
-AGENT_ALIAS_ID = settings.get("AGENTCORE_VIZ_ALIAS_ID", "")
-REGION = settings.get("AWS_REGION", "us-east-1")
-
-
-class AgentCoreVizClient:
-    """Wraps Bedrock Agent Runtime invoke_agent for the visualization agent."""
-
-    def __init__(self):
-        self._client = boto3.client("bedrock-agent-runtime", region_name=REGION)
-
-    def invoke(self, prompt: str) -> dict[str, Any] | None:
-        """
-        Send a prompt to the deployed viz agent and return the parsed chart spec.
-        
-        Returns:
-            dict with keys: chart_config, title, description — or None on failure.
-        """
-        session_id = str(uuid.uuid4())
-
-        try:
-            response = self._client.invoke_agent(
-                agentId=AGENT_ID,
-                agentAliasId=AGENT_ALIAS_ID,
-                sessionId=session_id,
-                inputText=prompt,
-            )
-
-            completion = self._read_stream(response)
-            return self._parse_chart_spec(completion)
-
-        except Exception as exc:
-            logger.error(json.dumps({
-                "event": "agentcore_viz_invoke_failed",
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            }))
-            return None
-
-    def _read_stream(self, response: dict) -> str:
-        """Read the streaming response from invoke_agent."""
-        parts = []
-        for event in response.get("completion", []):
-            if "chunk" in event:
-                chunk_bytes = event["chunk"].get("bytes", b"")
-                parts.append(chunk_bytes.decode("utf-8"))
-        return "".join(parts)
-
-    def _parse_chart_spec(self, text: str) -> dict[str, Any] | None:
-        """Extract emit_chart JSON from agent response text."""
-        # Look for JSON with chart_config key
-        json_pattern = r'\{[^{}]*"chart_config"[^{}]*\{.*?\}[^{}]*\}'
-        
-        # Try to find JSON blocks in the text
-        try:
-            # First try: parse the whole thing as JSON
-            parsed = json.loads(text)
-            if "chart_config" in parsed:
-                return parsed
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        # Second try: find JSON blocks between braces
-        depth = 0
-        start = None
-        for i, char in enumerate(text):
-            if char == "{":
-                if depth == 0:
-                    start = i
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0 and start is not None:
-                    candidate = text[start : i + 1]
-                    try:
-                        parsed = json.loads(candidate)
-                        if "chart_config" in parsed:
-                            return parsed
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                    start = None
-
-        return None
-```
-
-Then in `visualization_renderer.py`, use it:
-
-```python
-from src.services.agentcore_client import AgentCoreVizClient
-
-# In VisualizationRenderer.__init__:
-self._agentcore_client = AgentCoreVizClient()
-
-# In the render method, call:
-result = self._agentcore_client.invoke(prompt)
-if result:
-    return self._build_rendered_output(result, normalized_payload, stats_text)
+    if result:
+        return result
+    else:
+        # Fallback to deterministic rendering
+        return deterministic_render(normalized_payload, query_type, query_text, stats_text)
 ```
 
 ---
 
 ## Integrate with the Frontend
 
-The frontend doesn't need to know about AgentCore directly — it still calls the NLP Translator at `POST /query` and receives the same `RenderedOutput` response. The change is entirely backend.
+The frontend remains unchanged — it still calls your backend's `POST /query` endpoint and receives the same chart config response. The only difference is the backend now gets that config from Bedrock Return Control instead of a Lambda.
 
-However, if you want the frontend to call AgentCore directly (bypassing the local backend entirely), you'd need an API Gateway:
-
-### API Gateway Setup (Console)
-
-1. Go to **API Gateway** in the AWS Console
-2. Click **Create API** → **REST API** → **Build**
-3. Name: `conversational-bi-api`
-4. Create a resource `/query` with POST method
-5. Integration type: **Lambda function** (create a thin Lambda that invokes the gateway agent)
-6. Enable CORS: `*` for origins, `POST,OPTIONS` for methods
-7. Deploy to a stage (e.g., `prod`)
-8. Note the invoke URL: `https://{api-id}.execute-api.us-east-1.amazonaws.com/prod`
-
-### Update Frontend Environment
-
-```bash
-# frontend/.env.production
-VITE_API_URL=https://{api-id}.execute-api.us-east-1.amazonaws.com/prod
-```
-
-The existing `frontend/src/api/` or query submission code just needs the base URL changed. No structural changes to the React app.
+No API Gateway changes needed either.
 
 ---
 
 ## Environment Configuration
 
-### Backend `.env` additions
+### Backend `.env`
 
 ```bash
-# AgentCore Visualization Agent
-AGENTCORE_VIZ_AGENT_ID=ABCDE12345
-AGENTCORE_VIZ_ALIAS_ID=PRODALIASID
+# AgentCore Visualization Agent (Return Control — no Lambda)
+AGENTCORE_VIZ_AGENT_ID=YOUR_AGENT_ID_HERE
+AGENTCORE_VIZ_ALIAS_ID=YOUR_ALIAS_ID_HERE
 AWS_REGION=us-east-1
 
 # Toggle: use AgentCore vs local Strands agent
 USE_AGENTCORE_VIZ=true
 ```
 
-### Feature Toggle Pattern
+### AWS Credentials
 
-Add a toggle so you can switch between local and deployed agent:
+Your existing PowerUserAccess SSO profile works. Make sure your local `~/.aws/config` has:
 
-```python
-# In visualization_renderer.py
-USE_AGENTCORE = os.environ.get("USE_AGENTCORE_VIZ", "false").lower() == "true"
-
-async def render(self, ...):
-    if USE_AGENTCORE:
-        return await self._agentcore_render(...)
-    else:
-        return await self._agent_render_with_retry(...)
+```ini
+[profile PowerUserAccess-654654478821]
+sso_start_url = https://your-sso-url.awsapps.com/start
+sso_account_id = 654654478821
+sso_role_name = PowerUserAccess
+sso_region = us-east-1
+region = us-east-1
 ```
 
-This lets you develop locally with the Strands agent and deploy to AgentCore in production without code changes.
+Then either:
+- Set `AWS_PROFILE=PowerUserAccess-654654478821` in your `.env`
+- Or run `aws sso login --profile PowerUserAccess-654654478821` before starting your app
 
 ---
 
@@ -707,32 +553,57 @@ If the AgentCore deployment has issues:
 2. The system falls back to the local Strands Agent (or deterministic builder)
 3. No code deploy needed — just an env var change
 
-For the frontend (if using API Gateway):
-1. Change `VITE_API_URL` back to `http://localhost:8001`
-2. Rebuild frontend: `npm run build`
-
 ---
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| Agent returns text but doesn't call emit_chart | Make instructions more forceful; add "You MUST call emit_chart" |
-| Lambda timeout | Increase timeout to 30s; check chart_config parsing logic |
-| "Access Denied" on invoke_agent | Verify IAM role has `bedrock:InvokeAgent` permission |
+| Agent returns text but doesn't call emit_chart | Make instructions more forceful; add "You MUST call emit_chart". Re-Prepare the agent. |
+| No `returnControl` event in stream | Verify action group invocation is set to "Return Control" (not Lambda) |
+| `AccessDeniedException` on invoke_agent | Verify your SSO role has `bedrock:InvokeAgent` permission |
 | Agent not prepared | Click **Prepare** in the console after any config change |
 | Guardrail blocks valid output | Check guardrail config; financial data shouldn't trigger content filters |
-| Streaming response empty | Check agent alias is pointed to the correct version |
+| `chart_config` is invalid JSON | The agent sometimes produces malformed JSON — add retry logic or fallback |
+| Empty response stream | Check agent alias is pointed to the correct version |
 
 ---
 
 ## Summary
 
-| Component | Where it lives after deployment |
-|-----------|-------------------------------|
-| Visualization Agent logic | Bedrock AgentCore (managed) |
-| emit_chart validation | Lambda `viz-agent-emit-chart` |
-| Chart type selection intelligence | Claude 3.5 Haiku (via AgentCore) |
-| Backend orchestration | Still local (`visualization_renderer.py`) with AgentCore client |
-| Frontend | Unchanged — still calls `POST /query` on the NLP Translator |
+| Component | Where it lives |
+|-----------|---------------|
+| Visualization Agent logic | Bedrock Agent (managed, no Lambda) |
+| emit_chart validation | **Your application** (local Python code) |
+| Chart type selection intelligence | Claude 3.5 Haiku (via Bedrock Agent) |
+| Backend orchestration | Local (`visualization_renderer.py`) with `AgentCoreVizClient` |
+| Frontend | Unchanged — still calls `POST /query` on backend |
 | Guardrails | Bedrock Guardrails (attached to agent natively) |
+| IAM requirements | Just `bedrock:*` — no Lambda roles, no PassRole |
+
+---
+
+## CLI Alternative (Optional)
+
+If you prefer CLI over console for creating the action group with Return Control:
+
+```bash
+aws bedrock-agent create-agent-action-group \
+  --agent-id YOUR_AGENT_ID \
+  --agent-version DRAFT \
+  --action-group-name emit_chart_action \
+  --description "Emits a validated Chart.js configuration" \
+  --action-group-executor '{"customControl": "RETURN_CONTROL"}' \
+  --api-schema '{"payload": "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"emit_chart\",\"version\":\"1.0.0\"},\"paths\":{\"/emit_chart\":{\"post\":{\"operationId\":\"emitChart\",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"object\",\"required\":[\"chart_config\",\"title\",\"description\"],\"properties\":{\"chart_config\":{\"type\":\"string\",\"description\":\"Complete Chart.js JSON string\"},\"title\":{\"type\":\"string\",\"description\":\"Chart title\"},\"description\":{\"type\":\"string\",\"description\":\"BI insight\"}}}}}},\"responses\":{\"200\":{\"description\":\"Success\"}}}}}}"}}' \
+  --region us-east-1 \
+  --profile PowerUserAccess-654654478821
+```
+
+Then prepare the agent:
+
+```bash
+aws bedrock-agent prepare-agent \
+  --agent-id YOUR_AGENT_ID \
+  --region us-east-1 \
+  --profile PowerUserAccess-654654478821
+```
