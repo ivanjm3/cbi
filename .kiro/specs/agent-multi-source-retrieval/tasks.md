@@ -24,7 +24,7 @@ All data sources are AWS-hosted (RDS PostgreSQL, DynamoDB, S3 CSV, S3/CloudWatch
     - **Property 5: Source Registry Config Round-Trip** — generate random SourceConfig objects, serialize/deserialize via Pydantic, confirm equality
     - **Validates: Requirements 3.1, 3.2**
 
-  - [ ] 1.3 Implement the Query Planner Agent
+  - [-] 1.3 Implement the Query Planner Agent
     - Create `src/agents/query_planner_agent.py` with a `QueryPlannerAgent` class using the Strands SDK `Agent`
     - Define tools: `lookup_ontology`, `search_sources`, `query_rds_source`, `query_dynamodb_source`, `query_s3_csv_source`, `query_log_source`, `query_s3_json_source`
     - Implement `plan_and_execute(query_text, session_context) -> OrchestratorResponse` method
