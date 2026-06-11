@@ -231,6 +231,11 @@ export const useSessionStore = create<SessionState>()(
             const renderedOutput = result.data;
             const cardId = generateId();
 
+            // Ensure latency_ms is present in metadata (use API-measured value if backend didn't provide it)
+            if (renderedOutput.metadata && renderedOutput.metadata.latency_ms == null) {
+              renderedOutput.metadata.latency_ms = result.latencyMs;
+            }
+
             // Parse user-requested chart type from the query
             const userRequestedChartType = parseUserRequestedChartType(queryText);
 

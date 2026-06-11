@@ -6,10 +6,11 @@ query flow: NLP → Orchestrator → Guardrail → Renderer.
 
 Runs on port 8001 (configured in src.config).
 
-Requirements: 2.1, 2.5, 11.2
+Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 11.2
 """
 
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -37,10 +38,66 @@ from src.services.observability import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Shared HTTP connection pool (Requirements: 2.1, 2.2, 2.3, 2.4)
+# ---------------------------------------------------------------------------
+_http_pool: httpx.AsyncClient | None = None
+
+_POOL_LIMITS = httpx.Limits(
+    max_keepalive_connections=10,
+    max_connections=20,
+)
+
+
+def get_http_pool() -> httpx.AsyncClient:
+    """Get the shared HTTP connection pool.
+
+    Returns:
+        The module-level httpx.AsyncClient instance.
+
+    Raises:
+        RuntimeError: If called before the pool is initialized (before app startup).
+    """
+    if _http_pool is None:
+        raise RuntimeError(
+            "HTTP connection pool not initialized. "
+            "Ensure the FastAPI app lifespan has started."
+        )
+    return _http_pool
+
+
+def set_http_pool(pool: httpx.AsyncClient | None) -> None:
+    """Override the HTTP pool instance (for testing).
+
+    Args:
+        pool: An httpx.AsyncClient to use, or None to clear.
+    """
+    global _http_pool
+    _http_pool = pool
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """FastAPI lifespan: initialize the shared connection pool on startup,
+    close it on shutdown."""
+    global _http_pool
+    _http_pool = httpx.AsyncClient(limits=_POOL_LIMITS)
+    logger.info(
+        "HTTP connection pool initialized "
+        f"(max_keepalive={_POOL_LIMITS.max_keepalive_connections}, "
+        f"max_connections={_POOL_LIMITS.max_connections})"
+    )
+    yield
+    await _http_pool.aclose()
+    _http_pool = None
+    logger.info("HTTP connection pool closed")
+
+
 app = FastAPI(
     title="NLP Translator Service",
     description="Translates natural language queries into structured intents and orchestrates the query flow.",
     version="1.0.0",
+    lifespan=_lifespan,
 )
 
 # CORS middleware for development
@@ -247,21 +304,22 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
     # Step 2: Call Orchestrator Hub
     step_start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            orchestrator_response = await client.post(
-                f"{ORCHESTRATOR_URL}/internal/process",
-                json={"structured_intent": intent.model_dump(mode="json")},
-                headers=headers,
+        client = get_http_pool()
+        orchestrator_response = await client.post(
+            f"{ORCHESTRATOR_URL}/internal/process",
+            json={"structured_intent": intent.model_dump(mode="json")},
+            headers=headers,
+            timeout=90.0,
+        )
+
+        if orchestrator_response.status_code != 200:
+            error_data = orchestrator_response.json()
+            return JSONResponse(
+                status_code=orchestrator_response.status_code,
+                content=error_data,
             )
 
-            if orchestrator_response.status_code != 200:
-                error_data = orchestrator_response.json()
-                return JSONResponse(
-                    status_code=orchestrator_response.status_code,
-                    content=error_data,
-                )
-
-            orchestrator_data = orchestrator_response.json()
+        orchestrator_data = orchestrator_response.json()
 
     except httpx.ConnectError:
         logger.error(f"Failed to connect to Orchestrator Hub at {ORCHESTRATOR_URL}")
@@ -288,26 +346,27 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
     # Step 3: Call Guardrail Layer
     step_start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            guardrail_response = await client.post(
-                f"{GUARDRAIL_URL}/internal/validate",
-                json={
-                    "orchestrator_response": orchestrator_data.get(
-                        "orchestrator_response", orchestrator_data
-                    ),
-                    "structured_intent": intent.model_dump(mode="json"),
-                },
-                headers=headers,
+        client = get_http_pool()
+        guardrail_response = await client.post(
+            f"{GUARDRAIL_URL}/internal/validate",
+            json={
+                "orchestrator_response": orchestrator_data.get(
+                    "orchestrator_response", orchestrator_data
+                ),
+                "structured_intent": intent.model_dump(mode="json"),
+            },
+            headers=headers,
+            timeout=30.0,
+        )
+
+        if guardrail_response.status_code != 200:
+            error_data = guardrail_response.json()
+            return JSONResponse(
+                status_code=guardrail_response.status_code,
+                content=error_data,
             )
 
-            if guardrail_response.status_code != 200:
-                error_data = guardrail_response.json()
-                return JSONResponse(
-                    status_code=guardrail_response.status_code,
-                    content=error_data,
-                )
-
-            guardrail_data = guardrail_response.json()
+        guardrail_data = guardrail_response.json()
 
     except httpx.ConnectError:
         logger.error(f"Failed to connect to Guardrail Layer at {GUARDRAIL_URL}")
@@ -334,26 +393,27 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
     # Step 4: Call Visualization Renderer (longer timeout for LLM agent)
     step_start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            viz_response = await client.post(
-                f"{VIZ_URL}/internal/render",
-                json={
-                    "validated_response": guardrail_data.get(
-                        "validated_response", guardrail_data
-                    ),
-                    "structured_intent": intent.model_dump(mode="json"),
-                },
-                headers=headers,
+        client = get_http_pool()
+        viz_response = await client.post(
+            f"{VIZ_URL}/internal/render",
+            json={
+                "validated_response": guardrail_data.get(
+                    "validated_response", guardrail_data
+                ),
+                "structured_intent": intent.model_dump(mode="json"),
+            },
+            headers=headers,
+            timeout=120.0,
+        )
+
+        if viz_response.status_code != 200:
+            error_data = viz_response.json()
+            return JSONResponse(
+                status_code=viz_response.status_code,
+                content=error_data,
             )
 
-            if viz_response.status_code != 200:
-                error_data = viz_response.json()
-                return JSONResponse(
-                    status_code=viz_response.status_code,
-                    content=error_data,
-                )
-
-            rendered_output = viz_response.json()
+        rendered_output = viz_response.json()
 
     except httpx.ConnectError:
         logger.error(f"Failed to connect to Visualization Renderer at {VIZ_URL}")

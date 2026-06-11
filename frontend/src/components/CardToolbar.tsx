@@ -19,6 +19,7 @@ import type { CardState } from '../types';
 import { useSessionStore } from '../store/sessionStore';
 import { exportCSV } from '../utils/csvExport';
 import { exportPNG } from '../utils/pngExport';
+import { formatLatency } from '../utils/formatters';
 
 export interface CardToolbarProps {
   card: CardState;
@@ -262,6 +263,38 @@ export function CardToolbar({
 
         {/* Spacer */}
         <div className="flex-1" />
+
+        {/* Latency indicator button (hover to reveal value) */}
+        <button
+          type="button"
+          className="group relative p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
+          title={card.renderedOutput.metadata?.latency_ms != null ? formatLatency(card.renderedOutput.metadata.latency_ms) : 'Latency'}
+          aria-label={card.renderedOutput.metadata?.latency_ms != null ? formatLatency(card.renderedOutput.metadata.latency_ms) : 'Latency'}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          {/* Tooltip on hover */}
+          <span
+            className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded bg-bg-primary px-2 py-1 text-xs text-text-primary shadow-card border border-border-default opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            role="tooltip"
+          >
+            {card.renderedOutput.metadata?.latency_ms != null
+              ? formatLatency(card.renderedOutput.metadata.latency_ms)
+              : 'N/A'}
+          </span>
+        </button>
 
         {/* Download PNG */}
         <button
