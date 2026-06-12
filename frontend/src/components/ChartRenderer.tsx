@@ -14,35 +14,13 @@
 import { useMemo } from 'react';
 import {
   Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  RadialLinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Filler,
-  Tooltip,
-  Legend,
-  Title,
+  registerables,
 } from 'chart.js';
 import { Chart } from 'react-chartjs-2';
 import type { RenderedOutput } from '../types';
 
-// Register all Chart.js components needed for any chart type
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  RadialLinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Filler,
-  Tooltip,
-  Legend,
-  Title,
-);
+// Register ALL Chart.js components (handles any chart type the LLM might produce)
+ChartJS.register(...registerables);
 
 interface ChartRendererProps {
   renderedOutput: RenderedOutput;

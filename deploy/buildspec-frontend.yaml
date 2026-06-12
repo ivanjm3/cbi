@@ -1,0 +1,24 @@
+# CodeBuild buildspec for frontend — npm build + S3 sync
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - "echo === Source root contents ==="
+      - "ls -la"
+      - "ls -la frontend/ 2>/dev/null || echo 'No frontend/ dir at root'"
+
+  build:
+    commands:
+      - "echo Building frontend..."
+      - "if [ -d frontend ]; then cd frontend && npm ci && npx vite build; elif [ -f package.json ]; then npm ci && npx vite build; else echo 'ERROR: Cannot find frontend source' && exit 1; fi"
+
+  post_build:
+    commands:
+      - "echo Uploading to S3..."
+      - "if [ -d frontend/dist ]; then DIST=frontend/dist; elif [ -d dist ]; then DIST=dist; else echo 'ERROR: No dist found' && exit 1; fi"
+      - "aws s3 sync $DIST/ s3://$FRONTEND_BUCKET/ --delete --cache-control 'public, max-age=31536000, immutable'"
+      - "aws s3 cp $DIST/index.html s3://$FRONTEND_BUCKET/index.html --cache-control 'public, max-age=0, must-revalidate' --content-type text/html"
+      - "echo Frontend deployment complete."

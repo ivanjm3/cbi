@@ -52,8 +52,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Path to the frontend HTML file
-_FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+# Path to the frontend built assets (dist/ from Vite build)
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 # Module-level translator instance, initialized on startup
 _translator: NLPTranslator | None = None
@@ -104,11 +104,17 @@ async def health_check() -> dict:
 
 @app.get("/")
 async def serve_frontend() -> FileResponse:
-    """Serve the testing frontend UI.
+    """Serve the frontend SPA index.html.
     Returns:
-        The index.html file for the query testing interface.
+        The index.html file for the React frontend.
     """
-    return FileResponse(_FRONTEND_DIR / "index.html", media_type="text/html")
+    index_path = _FRONTEND_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path, media_type="text/html")
+    return FileResponse(
+        Path(__file__).resolve().parent.parent.parent / "frontend" / "index.html",
+        media_type="text/html",
+    )
 
 
 @app.get("/cost-report")
@@ -388,6 +394,22 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
             "correlation_id": correlation_id,
         },
     )
+
+
+# Mount static files for the frontend SPA (Vite build output)
+# This must be AFTER all API routes so they take priority
+from fastapi.staticfiles import StaticFiles
+
+if _FRONTEND_DIR.exists() and _FRONTEND_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=_FRONTEND_DIR / "assets"), name="static-assets")
+    # Catch-all for SPA routing — serve index.html for any unmatched GET
+    @app.get("/{path:path}")
+    async def spa_fallback(path: str):
+        """Serve index.html for SPA client-side routing."""
+        index_path = _FRONTEND_DIR / "index.html"
+        if (file_path := _FRONTEND_DIR / path).exists() and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(index_path, media_type="text/html")
 
 
 if __name__ == "__main__":

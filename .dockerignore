@@ -1,0 +1,18 @@
+# Docker build context exclusions
+.git
+.hypothesis
+.pytest_cache
+.vscode
+.kiro
+__pycache__
+*.pyc
+node_modules
+frontend/node_modules
+frontend/dist
+logs
+tests
+docs
+lambda
+deploy
+.gitignore
+README.md

@@ -31,8 +31,8 @@ VIZ_URL = f"http://localhost:{VIZ_PORT}"
 AGENT_A_URL = f"http://localhost:{AGENT_A_PORT}"
 
 # AWS Configuration
-AWS_PROFILE = "PowerUserAccess-654654478821"
-S3_BUCKET = "visualization-poc-bucket"
+AWS_PROFILE = os.environ.get("AWS_PROFILE", "PowerUserAccess-654654478821")
+S3_BUCKET = os.environ.get("S3_BUCKET", "visualization-poc-bucket")
 
 # S3 Key Prefixes
 S3_ONTOLOGY_PREFIX = "ontology/"
@@ -56,15 +56,22 @@ DEFAULT_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 EMBEDDINGS_MODEL_ID = "amazon.titan-embed-text-v2:0"
 
 # Bedrock Guardrails
-BEDROCK_GUARDRAIL_ID = "joes1p3j7sa4"
-BEDROCK_GUARDRAIL_VERSION = "DRAFT"
+BEDROCK_GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID", "joes1p3j7sa4")
+BEDROCK_GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 
 
 def get_boto3_session() -> boto3.Session:
     """Get a boto3 session using the configured AWS profile.
+
+    In ECS/Lambda, uses the task role automatically (no profile needed).
+    Locally, uses the configured AWS_PROFILE.
+
     Returns:
-        A boto3.Session configured with the project's AWS profile.
+        A boto3.Session configured with appropriate credentials.
     """
+    # In ECS, the ECS_CONTAINER_METADATA_URI env var is set — use default creds
+    if os.environ.get("ECS_CONTAINER_METADATA_URI") or os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"):
+        return boto3.Session(region_name="us-east-1")
     return boto3.Session(profile_name=AWS_PROFILE)
 
 

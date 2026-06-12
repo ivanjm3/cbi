@@ -5,7 +5,7 @@
 
 import type { RenderedOutput } from '../types';
 
-export const API_BASE = 'http://localhost:8001';
+export const API_BASE = import.meta.env.VITE_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:8001' : '');
 export const TIMEOUT_MS = 120_000;
 
 /** Discriminated union for query results */

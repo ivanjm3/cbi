@@ -1,0 +1,29 @@
+# CodeBuild buildspec for backend — Docker build + ECR push
+# App Runner auto-deploys when a new image lands in ECR.
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - "echo Logging into ECR..."
+      - "aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+      - "export COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7 2>/dev/null || echo none)"
+      - "export IMAGE_URI=$ECR_REPO_URI:$IMAGE_TAG"
+      - "if [ \"$COMMIT_HASH\" != \"none\" ] && [ -n \"$COMMIT_HASH\" ]; then export IMAGE_URI_COMMIT=$ECR_REPO_URI:$COMMIT_HASH; else export IMAGE_URI_COMMIT=''; fi"
+      - "echo IMAGE_URI=$IMAGE_URI"
+
+  build:
+    commands:
+      - "echo Building Docker image..."
+      - "echo Listing build context..."
+      - "ls -la"
+      - "ls -la deploy/"
+      - "docker build -t $IMAGE_URI -f deploy/Dockerfile ."
+      - "if [ -n \"$IMAGE_URI_COMMIT\" ]; then docker tag $IMAGE_URI $IMAGE_URI_COMMIT; fi"
+
+  post_build:
+    commands:
+      - "echo Pushing image to ECR..."
+      - "docker push $IMAGE_URI"
+      - "if [ -n \"$IMAGE_URI_COMMIT\" ]; then docker push $IMAGE_URI_COMMIT; fi"
+      - "echo Done - App Runner will auto-deploy from ECR."

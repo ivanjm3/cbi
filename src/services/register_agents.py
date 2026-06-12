@@ -25,9 +25,15 @@ AGENT_REGISTRATIONS = [
         "endpoint_url": AGENT_A_URL,
         "entity_refs": [
             "ontology:sales_revenue",
+            "ontology:order_volume",
+            "ontology:return_rate",
             "ontology:quarterly_report",
             "ontology:product_catalog",
-            "ontology:employee_count",
+            "ontology:inventory_stock",
+            "ontology:product_pricing",
+            "ontology:supplier_info",
+            "ontology:product_category",
+            "ontology:region",
         ],
     },
 ]
