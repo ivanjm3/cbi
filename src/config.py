@@ -8,6 +8,7 @@ import os
 import ssl
 import urllib3
 import boto3
+from pydantic import BaseModel, Field
 
 # Suppress SSL verification warnings (corporate proxy / self-signed certs)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -22,6 +23,7 @@ ORCHESTRATOR_PORT = 8002
 GUARDRAIL_PORT = 8003
 VIZ_PORT = 8004
 AGENT_A_PORT = 8010
+REDSHIFT_AGENT_PORT = 8011
 
 # Service base URLs (localhost for Phase 1)
 NLP_URL = f"http://localhost:{NLP_PORT}"
@@ -29,6 +31,7 @@ ORCHESTRATOR_URL = f"http://localhost:{ORCHESTRATOR_PORT}"
 GUARDRAIL_URL = f"http://localhost:{GUARDRAIL_PORT}"
 VIZ_URL = f"http://localhost:{VIZ_PORT}"
 AGENT_A_URL = f"http://localhost:{AGENT_A_PORT}"
+REDSHIFT_AGENT_URL = f"http://localhost:{REDSHIFT_AGENT_PORT}"
 
 # AWS Configuration
 AWS_PROFILE = os.environ.get("AWS_PROFILE", "PowerUserAccess-654654478821")
@@ -124,3 +127,33 @@ def get_strands_bedrock_model(model_id: str | None = None, max_tokens: int | Non
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
     return BedrockModel(**kwargs)
+
+
+# Redshift Configuration
+class RedshiftConfig(BaseModel):
+    """Configuration for the Redshift Data API connection."""
+
+    cluster_id: str = Field(default="talktodata")
+    database: str = Field(default="analytics")
+    db_user: str = Field(default="admin")
+    region: str = Field(default="us-east-1")
+
+    @classmethod
+    def from_env(cls) -> "RedshiftConfig":
+        """Create a RedshiftConfig from environment variables with defaults."""
+        return cls(
+            cluster_id=os.environ.get("REDSHIFT_CLUSTER_ID", "talktodata"),
+            database=os.environ.get("REDSHIFT_DATABASE", "analytics"),
+            db_user=os.environ.get("REDSHIFT_DB_USER", "admin"),
+            region=os.environ.get("REDSHIFT_REGION", "us-east-1"),
+        )
+
+
+def get_redshift_data_client():
+    """Get a Redshift Data API client using the configured AWS profile.
+
+    Returns:
+        A boto3 redshift-data client.
+    """
+    session = get_boto3_session()
+    return session.client("redshift-data", region_name="us-east-1", verify=False)

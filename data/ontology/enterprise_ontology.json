@@ -102,6 +102,68 @@
       "relationships": []
     },
     {
+      "concept_id": "ontology:sales_transactions",
+      "label": "Sales Transactions",
+      "properties": {
+        "domain": "finance",
+        "data_source": "redshift",
+        "agent_id": "redshift-spoke-agent",
+        "description": "Individual sales transactions with quantity, pricing, and regional breakdown from Redshift",
+        "numeric_properties": ["quantity", "total_amount"],
+        "aggregatable": true
+      },
+      "relationships": [
+        {
+          "target_id": "ontology:region",
+          "relation_type": "grouped_by",
+          "properties": {"join_key": "region"}
+        },
+        {
+          "target_id": "ontology:product_category",
+          "relation_type": "grouped_by",
+          "properties": {"join_key": "category"}
+        }
+      ]
+    },
+    {
+      "concept_id": "ontology:customer_segments",
+      "label": "Customer Segments",
+      "properties": {
+        "domain": "customers",
+        "data_source": "redshift",
+        "agent_id": "redshift-spoke-agent",
+        "description": "Customer segmentation with lifetime value and order metrics from Redshift",
+        "numeric_properties": ["lifetime_value", "total_orders"],
+        "aggregatable": true
+      },
+      "relationships": [
+        {
+          "target_id": "ontology:region",
+          "relation_type": "grouped_by",
+          "properties": {"join_key": "region"}
+        }
+      ]
+    },
+    {
+      "concept_id": "ontology:employee_performance",
+      "label": "Employee Performance",
+      "properties": {
+        "domain": "hr",
+        "data_source": "redshift",
+        "agent_id": "redshift-spoke-agent",
+        "description": "Employee performance metrics including targets, actuals, deals, and satisfaction scores from Redshift",
+        "numeric_properties": ["quarterly_target", "quarterly_actual", "deals_closed", "customer_satisfaction_score"],
+        "aggregatable": true
+      },
+      "relationships": [
+        {
+          "target_id": "ontology:region",
+          "relation_type": "grouped_by",
+          "properties": {"join_key": "region"}
+        }
+      ]
+    },
+    {
       "concept_id": "ontology:product_category",
       "label": "Product Category",
       "properties": {
@@ -184,6 +246,30 @@
       "target_id": "ontology:region",
       "relation_type": "grouped_by",
       "properties": {"join_key": "supplier_region"}
+    },
+    {
+      "source_id": "ontology:sales_transactions",
+      "target_id": "ontology:region",
+      "relation_type": "grouped_by",
+      "properties": {"join_key": "region"}
+    },
+    {
+      "source_id": "ontology:sales_transactions",
+      "target_id": "ontology:product_category",
+      "relation_type": "grouped_by",
+      "properties": {"join_key": "category"}
+    },
+    {
+      "source_id": "ontology:customer_segments",
+      "target_id": "ontology:region",
+      "relation_type": "grouped_by",
+      "properties": {"join_key": "region"}
+    },
+    {
+      "source_id": "ontology:employee_performance",
+      "target_id": "ontology:region",
+      "relation_type": "grouped_by",
+      "properties": {"join_key": "region"}
     }
   ],
   "metadata": {

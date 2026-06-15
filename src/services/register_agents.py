@@ -12,7 +12,7 @@ import logging
 
 import httpx
 
-from src.config import AGENT_A_URL, ORCHESTRATOR_URL
+from src.config import AGENT_A_URL, ORCHESTRATOR_URL, REDSHIFT_AGENT_URL
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,17 @@ AGENT_REGISTRATIONS = [
             "ontology:supplier_info",
             "ontology:product_category",
             "ontology:region",
+        ],
+    },
+    {
+        "agent_id": "redshift-spoke-agent",
+        "agent_name": "Redshift Spoke Agent",
+        "data_source": "redshift",
+        "endpoint_url": REDSHIFT_AGENT_URL,
+        "entity_refs": [
+            "ontology:sales_transactions",
+            "ontology:customer_segments",
+            "ontology:employee_performance",
         ],
     },
 ]

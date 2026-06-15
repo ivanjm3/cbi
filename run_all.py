@@ -1,6 +1,6 @@
 """Launcher script to start all services for the Ontology NLP Query System.
 
-Starts all 6 FastAPI processes on their designated ports, waits for health
+Starts all FastAPI processes on their designated ports, waits for health
 checks, then registers demo agents with the Orchestrator Hub.
 
 Services:
@@ -8,8 +8,8 @@ Services:
   - Orchestrator Hub:      port 8002
   - Guardrail Layer:       port 8003
   - Visualization Renderer: port 8004
-  - Spoke Agent A (JSON):  port 8010
-  - Spoke Agent B (CSV):   port 8011
+  - Spoke Agent (JSON/CSV): port 8010
+  - Redshift Spoke Agent:  port 8011
 """
 
 import asyncio
@@ -44,6 +44,11 @@ SERVICES = [
         "name": "Spoke Agent",
         "module": "src.agents.spoke_agent:app",
         "port": 8010,
+    },
+    {
+        "name": "Redshift Spoke Agent",
+        "module": "src.agents.redshift_spoke_agent:app",
+        "port": 8011,
     },
     {
         "name": "NLP Translator",
