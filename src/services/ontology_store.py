@@ -164,11 +164,14 @@ class OntologyStore:
     def search_concepts(self, keyword: str) -> list[OntologyConcept]:
         """Keyword search over concept labels, descriptions, and concept_ids.
 
-        Uses multiple matching strategies:
-        1. Exact substring match on label
-        2. Substring match on description
-        3. Substring match on concept_id (without "ontology:" prefix)
-        4. Stemmed/partial word match (strips trailing 's', 'es', 'ing', 'tion')
+        Uses multiple matching strategies with priority ranking:
+        1. Exact match on concept_id (highest priority)
+        2. Exact substring match on label
+        3. Substring match on concept_id words
+        4. Stemmed/partial word match on label or concept_id
+        5. Substring match on description (lowest priority)
+
+        Results are sorted by match quality — exact matches first.
 
         Args:
             keyword: The search term to match against concepts.
@@ -183,7 +186,8 @@ class OntologyStore:
         # Generate stemmed variants for partial matching
         stems = self._get_stems(keyword_lower)
 
-        results: list[OntologyConcept] = []
+        # Collect results with priority scores (lower = better)
+        scored: list[tuple[int, OntologyConcept]] = []
         seen: set[str] = set()
 
         for definition in self._definitions.values():
@@ -191,49 +195,65 @@ class OntologyStore:
                 if concept.concept_id in seen:
                     continue
 
-                if self._concept_matches(concept, keyword_lower, stems):
-                    results.append(concept)
+                score = self._score_concept_match(concept, keyword_lower, stems)
+                if score is not None:
+                    scored.append((score, concept))
                     seen.add(concept.concept_id)
 
-        return results
+        # Sort by score (lower = better match)
+        scored.sort(key=lambda x: x[0])
+        return [concept for _, concept in scored]
 
-    def _concept_matches(self, concept: OntologyConcept, keyword: str, stems: set[str]) -> bool:
-        """Check if a concept matches the keyword using multiple strategies."""
+    def _score_concept_match(self, concept: OntologyConcept, keyword: str, stems: set[str]) -> int | None:
+        """Score how well a concept matches the keyword. Returns None if no match.
+        
+        Lower scores = better matches:
+        0 = exact concept_id match
+        1 = exact label match
+        2 = concept_id word containment
+        3 = label word stem match
+        4 = description containment
+        5 = description stem match
+        """
         label_lower = concept.label.lower()
         concept_id_lower = concept.concept_id.lower().replace("ontology:", "").replace("_", " ")
         description = concept.properties.get("description", "").lower()
 
-        # Strategy 1: exact substring in label
+        # Priority 0: exact concept_id match (e.g. "sales_transactions" matches ontology:sales_transactions)
+        if keyword.replace(" ", "_") == concept_id_lower.replace(" ", "_"):
+            return 0
+
+        # Priority 1: exact substring in label
         if keyword in label_lower:
-            return True
+            return 1
 
-        # Strategy 2: exact substring in concept_id (without prefix, underscores as spaces)
+        # Priority 2: exact substring in concept_id words
         if keyword in concept_id_lower:
-            return True
+            return 2
 
-        # Strategy 3: exact substring in description
-        if keyword in description:
-            return True
-
-        # Strategy 4: stemmed matching — check if any stem matches any word in label/concept_id
+        # Priority 3: stemmed matching on label or concept_id words
         label_words = set(label_lower.split())
         concept_id_words = set(concept_id_lower.split())
         all_words = label_words | concept_id_words
 
         for stem in stems:
             for word in all_words:
-                # Check if stem matches the beginning of a word (prefix match)
                 if word.startswith(stem) or stem.startswith(word):
-                    return True
+                    return 3
 
-        # Strategy 5: check if any word in description starts with a stem
+        # Priority 4: exact substring in description
+        if keyword in description:
+            return 4
+
+        # Priority 5: stem match in description (only for longer stems)
         desc_words = set(description.split())
         for stem in stems:
-            for word in desc_words:
-                if word.startswith(stem) and len(stem) >= 4:
-                    return True
+            if len(stem) >= 4:
+                for word in desc_words:
+                    if word.startswith(stem):
+                        return 5
 
-        return False
+        return None
 
     @staticmethod
     def _get_stems(keyword: str) -> set[str]:

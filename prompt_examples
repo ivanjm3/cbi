@@ -34,25 +34,3 @@ Cross-Source (routes to multiple agents)
 "compare sales revenue with sales transactions by region"
 "show me product catalog alongside sales transactions"
 "compare order volume from financials with total orders from customer segments"
-
-
-
-
-"Now let me see what the NLP translator puts in entity_refs for these failing queries. The problem is the NLP translator isn't resolving entities like "expensive products", "sales transactions", "customer segments", "employee performance" to the correct ontology concepts.
-
-Analyzed code
-
-src/services/nlp_translator.py
-
-src/services/nlp_translator.py
-
-ontology_store.py
-Found the root cause. The search_concepts only matches by label substring. Let me trace what happens for "what are the most expensive products":
-
-Keywords extracted: ["expensive", "products", "expensive products"]
-search_concepts("expensive") → no concept label contains "expensive" → empty
-search_concepts("products") → checks labels: "Sales Revenue", "Order Volume", "Return Rate", "Quarterly Report", "Product Catalog", "Inventory Stock", "Product Pricing", "Supplier Information", "Product Category", "Region"
-"products" is NOT a substring of "Product Catalog" (case-insensitive: "products" in "product catalog" → False because "products" ≠ "product")
-That's the bug — "products" doesn't match "Product Catalog" because it's "product" (singular) in the label. Same issue: "transactions" doesn't match "Sales Revenue", "segments" doesn't match any label, "employee" doesn't match, "performance" doesn't match.
-
-The fix is to improve search_concepts to also check the description field and use stemming/partial matching, or more practically — add keyword aliases to the ontology. But the quickest fix is to enhance the search to also check descriptions and do partial word matching:"

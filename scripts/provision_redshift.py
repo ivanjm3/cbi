@@ -28,6 +28,9 @@ from src.services.redshift_connector import RedshiftConnector
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# Parse CLI args
+FORCE_RECREATE = "--force" in sys.argv or "--recreate" in sys.argv
+
 # --- Table DDL ---
 
 SALES_TRANSACTIONS_DDL = """
@@ -185,12 +188,24 @@ async def check_table_exists(connector: RedshiftConnector, table_name: str) -> b
     return result.row_count > 0
 
 
+async def drop_table(connector: RedshiftConnector, table_name: str) -> bool:
+    """Drop a table if it exists. Returns True on success."""
+    result = await connector.execute_statement(f"DROP TABLE IF EXISTS {table_name}")
+    if isinstance(result, RedshiftError):
+        print(f"  WARNING: Failed to drop '{table_name}': {result.description}")
+        return False
+    print(f"  ✓ Dropped table '{table_name}'")
+    return True
+
+
 async def provision() -> None:
     """Main provisioning logic."""
     config = RedshiftConfig.from_env()
     connector = RedshiftConnector(config)
 
     print(f"Connecting to Redshift cluster '{config.cluster_id}', database '{config.database}'...")
+    if FORCE_RECREATE:
+        print("  (--force mode: will drop and recreate all tables)")
 
     # Validate connectivity
     connected = await connector.validate_connectivity()
@@ -207,7 +222,9 @@ async def provision() -> None:
 
     # --- sales_transactions ---
     table_name = "sales_transactions"
-    if await check_table_exists(connector, table_name):
+    if FORCE_RECREATE:
+        await drop_table(connector, table_name)
+    if not FORCE_RECREATE and await check_table_exists(connector, table_name):
         print(f"  ⊘ Table '{table_name}' already exists — skipping")
     else:
         print(f"  Creating table '{table_name}'...")
@@ -240,7 +257,9 @@ async def provision() -> None:
 
     # --- customer_segments ---
     table_name = "customer_segments"
-    if await check_table_exists(connector, table_name):
+    if FORCE_RECREATE:
+        await drop_table(connector, table_name)
+    if not FORCE_RECREATE and await check_table_exists(connector, table_name):
         print(f"  ⊘ Table '{table_name}' already exists — skipping")
     else:
         print(f"  Creating table '{table_name}'...")
@@ -272,7 +291,9 @@ async def provision() -> None:
 
     # --- employee_performance ---
     table_name = "employee_performance"
-    if await check_table_exists(connector, table_name):
+    if FORCE_RECREATE:
+        await drop_table(connector, table_name)
+    if not FORCE_RECREATE and await check_table_exists(connector, table_name):
         print(f"  ⊘ Table '{table_name}' already exists — skipping")
     else:
         print(f"  Creating table '{table_name}'...")
