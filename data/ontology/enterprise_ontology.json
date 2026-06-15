@@ -112,18 +112,7 @@
         "numeric_properties": ["quantity", "total_amount"],
         "aggregatable": true
       },
-      "relationships": [
-        {
-          "target_id": "ontology:region",
-          "relation_type": "grouped_by",
-          "properties": {"join_key": "region"}
-        },
-        {
-          "target_id": "ontology:product_category",
-          "relation_type": "grouped_by",
-          "properties": {"join_key": "category"}
-        }
-      ]
+      "relationships": []
     },
     {
       "concept_id": "ontology:customer_segments",
@@ -136,13 +125,7 @@
         "numeric_properties": ["lifetime_value", "total_orders"],
         "aggregatable": true
       },
-      "relationships": [
-        {
-          "target_id": "ontology:region",
-          "relation_type": "grouped_by",
-          "properties": {"join_key": "region"}
-        }
-      ]
+      "relationships": []
     },
     {
       "concept_id": "ontology:employee_performance",
@@ -151,17 +134,11 @@
         "domain": "hr",
         "data_source": "redshift",
         "agent_id": "redshift-spoke-agent",
-        "description": "Employee performance metrics including targets, actuals, deals, and satisfaction scores from Redshift",
+        "description": "Employee performance metrics by department including targets, actuals, deals, and satisfaction scores from Redshift",
         "numeric_properties": ["quarterly_target", "quarterly_actual", "deals_closed", "customer_satisfaction_score"],
         "aggregatable": true
       },
-      "relationships": [
-        {
-          "target_id": "ontology:region",
-          "relation_type": "grouped_by",
-          "properties": {"join_key": "region"}
-        }
-      ]
+      "relationships": []
     },
     {
       "concept_id": "ontology:product_category",

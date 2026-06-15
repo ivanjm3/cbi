@@ -162,23 +162,119 @@ class OntologyStore:
         return results
 
     def search_concepts(self, keyword: str) -> list[OntologyConcept]:
-        """Keyword search over concept labels (case-insensitive).
+        """Keyword search over concept labels, descriptions, and concept_ids.
+
+        Uses multiple matching strategies:
+        1. Exact substring match on label
+        2. Substring match on description
+        3. Substring match on concept_id (without "ontology:" prefix)
+        4. Stemmed/partial word match (strips trailing 's', 'es', 'ing', 'tion')
 
         Args:
-            keyword: The search term to match against concept labels.
+            keyword: The search term to match against concepts.
 
         Returns:
-            List of concepts whose labels contain the keyword.
+            List of concepts matching the keyword, ordered by match quality.
         """
-        keyword_lower = keyword.lower()
+        keyword_lower = keyword.lower().strip()
+        if not keyword_lower:
+            return []
+
+        # Generate stemmed variants for partial matching
+        stems = self._get_stems(keyword_lower)
+
         results: list[OntologyConcept] = []
         seen: set[str] = set()
+
         for definition in self._definitions.values():
             for concept in definition.concepts:
-                if keyword_lower in concept.label.lower() and concept.concept_id not in seen:
+                if concept.concept_id in seen:
+                    continue
+
+                if self._concept_matches(concept, keyword_lower, stems):
                     results.append(concept)
                     seen.add(concept.concept_id)
+
         return results
+
+    def _concept_matches(self, concept: OntologyConcept, keyword: str, stems: set[str]) -> bool:
+        """Check if a concept matches the keyword using multiple strategies."""
+        label_lower = concept.label.lower()
+        concept_id_lower = concept.concept_id.lower().replace("ontology:", "").replace("_", " ")
+        description = concept.properties.get("description", "").lower()
+
+        # Strategy 1: exact substring in label
+        if keyword in label_lower:
+            return True
+
+        # Strategy 2: exact substring in concept_id (without prefix, underscores as spaces)
+        if keyword in concept_id_lower:
+            return True
+
+        # Strategy 3: exact substring in description
+        if keyword in description:
+            return True
+
+        # Strategy 4: stemmed matching — check if any stem matches any word in label/concept_id
+        label_words = set(label_lower.split())
+        concept_id_words = set(concept_id_lower.split())
+        all_words = label_words | concept_id_words
+
+        for stem in stems:
+            for word in all_words:
+                # Check if stem matches the beginning of a word (prefix match)
+                if word.startswith(stem) or stem.startswith(word):
+                    return True
+
+        # Strategy 5: check if any word in description starts with a stem
+        desc_words = set(description.split())
+        for stem in stems:
+            for word in desc_words:
+                if word.startswith(stem) and len(stem) >= 4:
+                    return True
+
+        return False
+
+    @staticmethod
+    def _get_stems(keyword: str) -> set[str]:
+        """Generate simple stemmed variants of a keyword.
+
+        Strips common English suffixes to improve matching.
+        E.g., "products" -> {"products", "product"}
+              "transactions" -> {"transactions", "transaction"}
+              "pricing" -> {"pricing", "pric"}
+        """
+        stems = {keyword}
+
+        # Strip plural 's'
+        if keyword.endswith("s") and len(keyword) > 3:
+            stems.add(keyword[:-1])
+
+        # Strip 'es' plural
+        if keyword.endswith("es") and len(keyword) > 4:
+            stems.add(keyword[:-2])
+
+        # Strip 'ing'
+        if keyword.endswith("ing") and len(keyword) > 5:
+            stems.add(keyword[:-3])
+
+        # Strip 'tion'/'sion'
+        if keyword.endswith("tion") and len(keyword) > 5:
+            stems.add(keyword[:-4])
+        if keyword.endswith("sion") and len(keyword) > 5:
+            stems.add(keyword[:-4])
+
+        # Strip 'ment'
+        if keyword.endswith("ment") and len(keyword) > 5:
+            stems.add(keyword[:-4])
+
+        # Strip 'ance'/'ence'
+        if keyword.endswith("ance") and len(keyword) > 5:
+            stems.add(keyword[:-4])
+        if keyword.endswith("ence") and len(keyword) > 5:
+            stems.add(keyword[:-4])
+
+        return stems
 
     # --- CRUD Interface ---
 
