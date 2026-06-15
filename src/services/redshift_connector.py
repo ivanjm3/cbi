@@ -95,6 +95,24 @@ class RedshiftConnector:
         if isinstance(poll_result, RedshiftError):
             return poll_result
 
+        # Check if statement has a result set (DDL statements don't)
+        try:
+            desc = await asyncio.to_thread(
+                self._client.describe_statement, Id=statement_id
+            )
+            has_result_set = desc.get("HasResultSet", False)
+        except Exception:
+            has_result_set = False
+
+        if not has_result_set:
+            # DDL or INSERT — no result set to fetch
+            return RedshiftResult(
+                columns=[],
+                rows=[],
+                row_count=0,
+                statement_id=statement_id,
+            )
+
         # Statement completed — retrieve results
         return await self._get_result_set(statement_id)
 

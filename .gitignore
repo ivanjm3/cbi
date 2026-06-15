@@ -9,3 +9,4 @@ node_modules/
 assets/
 .vscode/
 reference.md
+.venv/

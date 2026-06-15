@@ -135,7 +135,7 @@ class RedshiftConfig(BaseModel):
 
     cluster_id: str = Field(default="talktodata")
     database: str = Field(default="analytics")
-    db_user: str = Field(default="admin")
+    db_user: str = Field(default="awsuser")
     region: str = Field(default="us-east-1")
 
     @classmethod
@@ -144,7 +144,7 @@ class RedshiftConfig(BaseModel):
         return cls(
             cluster_id=os.environ.get("REDSHIFT_CLUSTER_ID", "talktodata"),
             database=os.environ.get("REDSHIFT_DATABASE", "analytics"),
-            db_user=os.environ.get("REDSHIFT_DB_USER", "admin"),
+            db_user=os.environ.get("REDSHIFT_DB_USER", "awsuser"),
             region=os.environ.get("REDSHIFT_REGION", "us-east-1"),
         )
 
