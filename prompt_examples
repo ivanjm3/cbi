@@ -1,0 +1,35 @@
+Financial Data (JSON — spoke-agent)
+
+"show me quarterly sales revenue"
+"compare revenue by region"
+"what's the total order volume for Electronics"
+"show return rates across all categories"
+Product Catalog (CSV — spoke-agent)
+
+"list all products in the Office Supplies category"
+"compare product pricing by category"
+"show inventory stock levels"
+"what are the most expensive products"
+Redshift — Sales Transactions (redshift-spoke-agent)
+
+"show me sales transactions in North America"
+"total sales amount by region"
+"compare transaction quantities by category"
+"what are the sales by payment method"
+Redshift — Customer Segments (redshift-spoke-agent)
+
+"show customer segments by region"
+"average lifetime value by segment"
+"compare total orders across customer segments"
+"list enterprise customers"
+Redshift — Employee Performance (redshift-spoke-agent)
+
+"show employee performance by department"
+"average customer satisfaction score by region"
+"compare quarterly targets vs actuals by department"
+"which region has the most deals closed"
+Cross-Source (routes to multiple agents)
+
+"compare sales revenue with sales transactions by region"
+"show me product catalog alongside sales transactions"
+"compare order volume from financials with total orders from customer segments"
