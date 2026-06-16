@@ -23,8 +23,8 @@ Redshift — Customer Segments (redshift-spoke-agent)
 "average lifetime value by segment"
 "compare total orders across customer segments"
 "list enterprise customers"
-Redshift — Employee Performance (redshift-spoke-agent)
 
+Redshift — Employee Performance (redshift-spoke-agent)
 "show employee performance by department"
 "average customer satisfaction score by region"
 "compare quarterly targets vs actuals by department"
@@ -34,3 +34,20 @@ Cross-Source (routes to multiple agents)
 "compare sales revenue with sales transactions by region"
 "show me product catalog alongside sales transactions"
 "compare order volume from financials with total orders from customer segments"
+
+
+
+
+
+
+
+request failed 422 ---> show return rates across all categories
+
+
+INFO:     127.0.0.1:58894 - "OPTIONS /query HTTP/1.1" 200 OK
+[2026-06-16 01:10:50.840] [INFO   ] {"service_name": "orchestrator_hub", "operation_name": "process_intent_endpoint", "correlation_id": "55bf1b22-f26d-4337-8cc3-42bced34f9e2", "timestamp": "2026-06-16T01:10:50.840066+00:00", "request_duration_ms": 0, "status_code": 422}
+INFO:     127.0.0.1:55215 - "POST /internal/process HTTP/1.1" 422 Unprocessable Entity
+[2026-06-16 01:10:50.840] [INFO   ] {"service_name": "nlp_translator", "operation_name": "query_endpoint", "correlation_id": "e5a4d4b4-a72e-47fb-a7b3-3aa7ba27fd67", "timestamp": "2026-06-16T01:10:50.840066+00:00", "request_duration_ms": 10827, "status_code": 422}
+INFO:     127.0.0.1:58894 - "POST /query HTTP/1.1" 422 Unprocessable Entity
+
+
