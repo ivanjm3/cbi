@@ -408,9 +408,12 @@ class NLPTranslator:
 
     def _resolve_entities(self, query_text: str) -> list[str]:
         """Resolve entity references in the query against the Ontology Store.
+
         Extracts keywords from the query text and searches the ontology for
-        matching concepts. Returns canonical concept identifiers for all
-        matched concepts.
+        matching concepts. For each keyword, takes only the top-ranked match
+        (best match quality). Excludes shared dimension concepts (like "region"
+        or "product_category") unless they are the ONLY match, since dimensions
+        don't have a data_source and shouldn't drive agent routing.
 
         Args:
             query_text: The natural language query text.
@@ -425,7 +428,20 @@ class NLPTranslator:
 
         for keyword in keywords:
             concepts = self.ontology_store.search_concepts(keyword)
-            for concept in concepts:
+            if not concepts:
+                continue
+
+            # Take only the top match for each keyword
+            # But skip shared dimensions if there are data-source concepts
+            data_source_concepts = [
+                c for c in concepts
+                if c.properties.get("data_source") or c.properties.get("agent_id")
+            ]
+
+            # Prefer data-source concepts over shared dimensions
+            top_concepts = data_source_concepts[:2] if data_source_concepts else concepts[:1]
+
+            for concept in top_concepts:
                 if concept.concept_id not in seen:
                     resolved_ids.append(concept.concept_id)
                     seen.add(concept.concept_id)
@@ -545,6 +561,10 @@ class NLPTranslator:
             "stock", "price", "prices", "pricing", "supplier", "suppliers",
             "order", "orders", "volume", "category", "categories", "region",
             "regions", "report", "financial", "quarterly",
+            "transactions", "transaction", "segments", "segment", "customer",
+            "customers", "employee", "employees", "performance", "department",
+            "departments", "satisfaction", "deals", "targets", "lifetime",
+            "shipments", "payment",
         }
 
         for keyword in keywords:

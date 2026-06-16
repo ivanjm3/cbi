@@ -32,8 +32,6 @@ AGENT_REGISTRATIONS = [
             "ontology:inventory_stock",
             "ontology:product_pricing",
             "ontology:supplier_info",
-            "ontology:product_category",
-            "ontology:region",
         ],
     },
     {
