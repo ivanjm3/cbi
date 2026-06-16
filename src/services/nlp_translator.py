@@ -409,9 +409,9 @@ class NLPTranslator:
     def _resolve_entities(self, query_text: str) -> list[str]:
         """Resolve entity references in the query against the Ontology Store.
 
-        For each keyword, takes only the TOP-RANKED match (best score).
-        Strongly prefers data-source concepts over shared dimensions.
-        Only returns exact concept_id matches or strong label matches.
+        Uses keyword specificity ranking: longer, more specific keywords 
+        have priority in determining the result. For multi-word queries,
+        the most specific matching keyword determines the resolved concept.
 
         Args:
             query_text: The natural language query text.
@@ -421,23 +421,42 @@ class NLPTranslator:
             Empty list if no concepts match.
         """
         keywords = self._extract_keywords(query_text)
+        
+        # Score each keyword by specificity (length, rarity)
+        keyword_scores: list[tuple[str, float]] = []
+        for kw in keywords:
+            # Longer keywords are more specific
+            length_score = len(kw)
+            # Keywords with fewer search results are more specific  
+            results = self.ontology_store.search_concepts(kw)
+            rarity_score = 1.0 / (len(results) + 1)  # +1 to avoid division by zero
+            total_score = length_score + (rarity_score * 10)  # Weight rarity
+            keyword_scores.append((kw, total_score))
+        
+        # Sort by specificity score (descending)
+        keyword_scores.sort(key=lambda x: x[1], reverse=True)
+        
         resolved_ids: list[str] = []
         seen: set[str] = set()
-
-        for keyword in keywords:
+        
+        # Process keywords in specificity order - most specific first
+        for keyword, score in keyword_scores:
             concepts = self.ontology_store.search_concepts(keyword)
             if not concepts:
                 continue
-
-            # Only take the TOP match for each keyword (highest ranked by search)
-            top_concept = concepts[0]
+                
+            # Take top concept that has an agent_id
+            for concept in concepts:
+                if (concept.properties.get("agent_id") and 
+                    concept.concept_id not in seen):
+                    resolved_ids.append(concept.concept_id)
+                    seen.add(concept.concept_id)
+                    break  # Stop after finding first valid concept for this keyword
             
-            # Only include if it's a data-source concept (has agent_id)
-            if (top_concept.properties.get("agent_id") and 
-                top_concept.concept_id not in seen):
-                resolved_ids.append(top_concept.concept_id)
-                seen.add(top_concept.concept_id)
-
+            # If we have enough concepts, stop (avoid over-resolving)
+            if len(resolved_ids) >= 2:
+                break
+        
         return resolved_ids
 
     def _extract_keywords(self, query_text: str) -> list[str]:
