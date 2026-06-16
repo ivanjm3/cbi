@@ -672,7 +672,7 @@ Deploying on AgentCore fundamentally changes the infrastructure layer while pres
 ```yaml
 # No separate service — guardrails applied per-agent
 guardrails:
-  id: joes1p3j7sa4
+  id: unf4323uxnff
   version: DRAFT
 ```
 The standalone port 8003 service is eliminated entirely.

@@ -56,7 +56,7 @@ aws apprunner create-service \
         \"RuntimeEnvironmentVariables\": {
           \"AWS_REGION\": \"us-east-1\",
           \"S3_BUCKET\": \"visualization-poc-bucket\",
-          \"GUARDRAIL_ID\": \"joes1p3j7sa4\",
+          \"GUARDRAIL_ID\": \"unf4323uxnff\",
           \"ENVIRONMENT\": \"prod\"
         }
       }

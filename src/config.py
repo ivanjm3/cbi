@@ -59,7 +59,7 @@ DEFAULT_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 EMBEDDINGS_MODEL_ID = "amazon.titan-embed-text-v2:0"
 
 # Bedrock Guardrails
-BEDROCK_GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID", "joes1p3j7sa4")
+BEDROCK_GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID", "unf4323uxnff")
 BEDROCK_GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 
 

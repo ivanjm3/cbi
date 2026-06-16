@@ -27,7 +27,7 @@ This guide covers deploying the Visualization Renderer agent to Amazon Bedrock u
 - Bedrock model access granted for `us.anthropic.claude-3-5-haiku-20241022-v1:0`
 - IAM permissions: `bedrock:*` (that's it — no Lambda or IAM role permissions needed)
 - The S3 bucket `visualization-poc-bucket` with data sources already uploaded
-- Existing Bedrock Guardrail ID: `joes1p3j7sa4` (DRAFT version)
+- Existing Bedrock Guardrail ID: `unf4323uxnff` (DRAFT version)
 - Python 3.12+ with `boto3` installed locally for the backend integration
 
 ---
@@ -100,7 +100,7 @@ Rules:
 ### Step 4: Attach Guardrails (Optional but Recommended)
 
 1. Under **Guardrails**, click **Add guardrail**
-2. Select guardrail ID: `joes1p3j7sa4`
+2. Select guardrail ID: `unf4323uxnff`
 3. Version: `DRAFT`
 
 ### Step 5: Click **Next** to proceed to Action Groups

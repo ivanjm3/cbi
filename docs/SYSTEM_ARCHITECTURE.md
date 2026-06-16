@@ -338,7 +338,7 @@ The ontology acts as a gatekeeper — queries that don't match any concept are r
 
 - **S3 bucket:** `visualization-poc-bucket`
 - **Bedrock:** Claude 3.5 Haiku + Titan Embeddings V2 (us-east-1)
-- **Bedrock Guardrails:** ID `joes1p3j7sa4` (DRAFT version)
+- **Bedrock Guardrails:** ID `unf4323uxnff` (DRAFT version)
 - **AWS Profile:** `PowerUserAccess-654654478821`
 
 ---

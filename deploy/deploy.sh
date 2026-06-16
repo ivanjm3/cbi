@@ -39,7 +39,7 @@ CODEBUILD_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/talk2data-codebuild-role"
 
 # Other config
 S3_DATA_BUCKET="visualization-poc-bucket"
-GUARDRAIL_ID="joes1p3j7sa4"
+GUARDRAIL_ID="unf4323uxnff"
 
 # SSL flag for corporate proxy
 SSL="--no-verify-ssl"

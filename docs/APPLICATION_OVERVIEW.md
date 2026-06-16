@@ -126,12 +126,12 @@ User types question
 ## Deployment Architecture
 
 ```
-┌───────────────────────────────────────────────┐
+┌────────────────────────────────────────────────┐
 │           AWS App Runner                       │
 │  (conversational-bi-prod)                      │
 │                                                │
 │  Single container running:                     │
-│  • NLP Translator (8001) ← entry point        │
+│  • NLP Translator (8001) ← entry point         │
 │  • Orchestrator Hub (8002)                     │
 │  • Guardrail Layer (8003)                      │
 │  • Visualization Renderer (8004)               │
@@ -141,14 +141,14 @@ User types question
 │  Auto-deploys from ECR on image push           │
 │  Auto-scales based on traffic                  │
 │  Built-in HTTPS                                │
-└───────────────────────────────────────────────┘
+└────────────────────────────────────────────────┘
          │
          ▼
-┌───────────────────────────────────────────────┐
+┌────────────────────────────────────────────────┐
 │  CodeBuild (talk2data-build-talk2data-ui)      │
 │  Triggered via: bash deploy/deploy.sh          │
 │  Builds Docker image → pushes to ECR           │
-└───────────────────────────────────────────────┘
+└────────────────────────────────────────────────┘
 ```
 
 | Resource | Details |
@@ -159,7 +159,7 @@ User types question
 | S3 (frontend assets) | conversational-bi-frontend-prod-654654478821 |
 | S3 (build artifacts) | conversational-bi-codebuild-prod-654654478821 |
 | Bedrock Model | Claude 3.5 Haiku |
-| Bedrock Guardrail | joes1p3j7sa4 (DRAFT) |
+| Bedrock Guardrail | unf4323uxnff (DRAFT) |
 | IAM Roles | talk2data-apprunner-role, AppRunnerECRAccessRole |
 
 ---

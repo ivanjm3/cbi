@@ -415,7 +415,7 @@ tools:
         required: true
 
 guardrails:
-  id: joes1p3j7sa4
+  id: unf4323uxnff
   version: DRAFT
 ```
 
@@ -671,7 +671,7 @@ Bedrock Guardrails integrate natively with AgentCore — no separate service nee
 ```yaml
 # In each agent.yaml:
 guardrails:
-  id: joes1p3j7sa4
+  id: unf4323uxnff
   version: DRAFT
   # Applied automatically to all agent I/O
 ```
