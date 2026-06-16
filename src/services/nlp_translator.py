@@ -409,11 +409,9 @@ class NLPTranslator:
     def _resolve_entities(self, query_text: str) -> list[str]:
         """Resolve entity references in the query against the Ontology Store.
 
-        Extracts keywords from the query text and searches the ontology for
-        matching concepts. For each keyword, takes only the top-ranked match
-        (best match quality). Excludes shared dimension concepts (like "region"
-        or "product_category") unless they are the ONLY match, since dimensions
-        don't have a data_source and shouldn't drive agent routing.
+        For each keyword, takes only the TOP-RANKED match (best score).
+        Strongly prefers data-source concepts over shared dimensions.
+        Only returns exact concept_id matches or strong label matches.
 
         Args:
             query_text: The natural language query text.
@@ -431,20 +429,14 @@ class NLPTranslator:
             if not concepts:
                 continue
 
-            # Take only the top match for each keyword
-            # But skip shared dimensions if there are data-source concepts
-            data_source_concepts = [
-                c for c in concepts
-                if c.properties.get("data_source") or c.properties.get("agent_id")
-            ]
-
-            # Prefer data-source concepts over shared dimensions
-            top_concepts = data_source_concepts[:2] if data_source_concepts else concepts[:1]
-
-            for concept in top_concepts:
-                if concept.concept_id not in seen:
-                    resolved_ids.append(concept.concept_id)
-                    seen.add(concept.concept_id)
+            # Only take the TOP match for each keyword (highest ranked by search)
+            top_concept = concepts[0]
+            
+            # Only include if it's a data-source concept (has agent_id)
+            if (top_concept.properties.get("agent_id") and 
+                top_concept.concept_id not in seen):
+                resolved_ids.append(top_concept.concept_id)
+                seen.add(top_concept.concept_id)
 
         return resolved_ids
 
