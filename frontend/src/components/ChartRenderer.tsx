@@ -87,24 +87,85 @@ function extractTableData(chartData: Record<string, unknown> | null | undefined)
 // ---------------------------------------------------------------------------
 
 function RenderChartJs({ config, fullscreen }: { config: { type: string; data: Record<string, unknown>; options: Record<string, unknown> }; fullscreen?: boolean }) {
-  // react-chartjs-2's <Chart> component accepts type, data, and options directly
-  const chartOptions = useMemo(() => ({
-    ...config.options,
-    responsive: true,
-    maintainAspectRatio: !fullscreen,
-  }), [config.options, fullscreen]);
+  // Enhance chart options for proper responsive scaling
+  const enhancedOptions = useMemo(() => {
+    const baseOptions = config.options as any || {};
+    
+    return {
+      ...baseOptions,
+      responsive: true,
+      maintainAspectRatio: !fullscreen,
+      aspectRatio: 2,
+      // Ensure proper scaling on resize
+      onResize: (chart: any) => {
+        // Force chart redraw on resize
+        if (chart && chart.resize) {
+          chart.resize();
+        }
+      },
+      // Plugin options for responsive behavior
+      plugins: {
+        ...(baseOptions.plugins || {}),
+        // Disable legend animation to prevent layout shifts
+        legend: {
+          ...(baseOptions.plugins?.legend || {}),
+          labels: {
+            ...(baseOptions.plugins?.legend?.labels || {}),
+            usePointStyle: true,
+            padding: 15,
+            boxWidth: 8,
+            boxHeight: 8,
+          },
+        },
+      },
+      // Ensure animations don't interfere with sizing
+      animation: {
+        ...(baseOptions.animation || {}),
+        animateRotate: true,
+        animateScale: false,
+      },
+      layout: {
+        ...(baseOptions.layout || {}),
+        padding: {
+          ...(baseOptions.layout?.padding || {}),
+          top: 10,
+          bottom: 10,
+          left: 10,
+          right: 10,
+        },
+      },
+    };
+  }, [config.options, fullscreen]);
 
   return (
     <div
-      className={fullscreen ? 'w-full h-full' : 'w-full'}
-      style={fullscreen ? undefined : { minHeight: '300px' }}
+      className="w-full h-full flex flex-col items-center justify-center"
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        minHeight: '300px',
+        overflow: 'hidden',
+      }}
       aria-label={`${config.type} chart`}
     >
-      <Chart
-        type={config.type as any}
-        data={config.data as any}
-        options={chartOptions as any}
-      />
+      {/* Wrapper ensures chart scales with container and doesn't overflow */}
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          minHeight: '300px',
+          maxWidth: '100%',
+          overflow: 'hidden',
+        }}
+      >
+        <Chart
+          type={config.type as any}
+          data={config.data as any}
+          options={enhancedOptions as any}
+        />
+      </div>
     </div>
   );
 }
@@ -190,13 +251,18 @@ function RenderError({ message }: { message: string }) {
 // ---------------------------------------------------------------------------
 
 export function ChartRenderer({ renderedOutput, fullscreen }: ChartRendererProps) {
+  // Guard against undefined renderedOutput
+  if (!renderedOutput) {
+    return <RenderError message="No visualization data available." />;
+  }
+
   // Handle text-only output
   if (renderedOutput.output_type === 'text' || (!renderedOutput.chart_data && renderedOutput.text_content)) {
     const textContent = renderedOutput.text_content ?? renderedOutput.description ?? '';
     return (
       <RenderTextBlock
         content={textContent}
-        description={renderedOutput.description}
+        description={renderedOutput.description ?? ''}
       />
     );
   }

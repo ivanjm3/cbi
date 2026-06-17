@@ -146,7 +146,7 @@
       "properties": {
         "domain": "shared",
         "type": "dimension",
-        "values": ["Electronics", "Office Furniture", "Office Supplies"],
+        "values": ["Electronics", "Office Furniture", "Office Supplies", "Software", "Networking"],
         "description": "Product categorization shared across sales and inventory data"
       },
       "relationships": []
@@ -157,7 +157,7 @@
       "properties": {
         "domain": "shared",
         "type": "dimension",
-        "values": ["North America", "Europe"],
+        "values": ["North America", "Europe", "Asia Pacific", "Latin America"],
         "description": "Geographic region shared across sales (region) and inventory (supplier_region)"
       },
       "relationships": []

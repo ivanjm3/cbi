@@ -270,3 +270,10 @@ cd frontend && npm run dev  # Frontend (port 5173)
 
 Built by Ivan Madathil (ivan.madathil@wipro.com)  
 Account: 654654478821 | Region: us-east-1
+
+
+
+
+- SLM use
+- GraphRAG ?
+- knowledge graph

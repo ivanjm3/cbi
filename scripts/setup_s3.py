@@ -24,10 +24,19 @@ from src.config import (
 
 
 def get_s3_client_no_verify():
-    """Get an S3 client with SSL verification disabled."""
+    """Get an S3 client matching the app's configuration.
+    
+    Uses explicit regional endpoint and disabled SSL verification
+    to work behind corporate proxies.
+    """
     import boto3
     session = boto3.Session(profile_name=AWS_PROFILE)
-    return session.client("s3", verify=False)
+    return session.client(
+        "s3",
+        region_name="us-east-1",
+        endpoint_url="https://s3.us-east-1.amazonaws.com",
+        verify=False,
+    )
 
 
 def main():

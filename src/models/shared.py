@@ -43,10 +43,10 @@ class OrchestratorResponse(BaseModel):
 
 class OrchestratorError(BaseModel):
     """Structured error returned by the Orchestrator Hub when dispatch fails.
-    Covers cases where no agents could be resolved for the query or all
-    dispatched agents timed out.
+    Covers cases where no agents could be resolved for the query, all
+    dispatched agents timed out, or the query was cancelled.
     """
-    error_type: Literal["NO_AGENTS_RESOLVED", "ALL_AGENTS_TIMED_OUT"]
+    error_type: Literal["NO_AGENTS_RESOLVED", "ALL_AGENTS_TIMED_OUT", "QUERY_CANCELLED"]
     message: str
     query_id: UUID
 

@@ -17,6 +17,7 @@ import { useSessionStore } from '../store/sessionStore';
 import { ChartRenderer } from './ChartRenderer';
 import { CardToolbar } from './CardToolbar';
 import { FullscreenModal } from './FullscreenModal';
+import { StrandConversation } from './StrandConversation';
 
 export interface VisualizationCardProps {
   card: CardState;
@@ -27,10 +28,15 @@ export interface VisualizationCardProps {
 export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProps) {
   const activeCardId = useSessionStore((s) => s.activeCardId);
   const setActiveCard = useSessionStore((s) => s.setActiveCard);
+  const strands = useSessionStore((s) => s.strands);
+  const loading = useSessionStore((s) => s.loading);
   const chartRef = useRef<HTMLDivElement>(null);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
   const isActive = activeCardId === card.id;
+  
+  // Find strand for this card (if any)
+  const strand = Object.values(strands).find(s => s.cardId === card.id) || null;
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -50,6 +56,11 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Don't intercept keys from input elements (text fields, textareas)
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         setActiveCard(card.id);
@@ -99,7 +110,7 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
       )}
 
       {/* Card content */}
-      <div className="p-4 flex flex-col gap-3">
+      <div className="p-4 flex flex-col gap-3 flex-1 overflow-hidden">
         {/* Card toolbar */}
         <CardToolbar
           card={card}
@@ -108,8 +119,17 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
           dragHandleRef={dragHandleRef}
         />
 
-        {/* Chart renderer */}
-        <div ref={chartRef} className="min-h-0">
+        {/* Chart renderer - with responsive container */}
+        <div 
+          ref={chartRef} 
+          className="flex-1 min-h-0 w-full overflow-hidden flex flex-col justify-center"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            width: '100%',
+            position: 'relative',
+          }}
+        >
           <ChartRenderer
             renderedOutput={card.renderedOutput}
             userRequestedChartType={card.userRequestedChartType}
@@ -131,6 +151,11 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
           <p className="text-xs text-text-muted truncate" title={card.query}>
             {card.query}
           </p>
+        </div>
+
+        {/* Conversation Strand */}
+        <div className="border-t border-border-default/50 mt-auto">
+          <StrandConversation cardId={card.id} strand={strand} isLoading={loading} />
         </div>
       </div>
 

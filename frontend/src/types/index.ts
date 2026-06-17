@@ -43,6 +43,10 @@ export interface RenderedOutput {
   text_content?: string | null;
   description: string;
   metadata: MetaPayload;
+  /** Indicates if this response is a meta-query (capability/system question) vs data query */
+  is_meta_query?: boolean;
+  /** Raw data for visualization type conversion (stored for rerendering) */
+  raw_data?: Record<string, unknown> | null;
 }
 
 /** Metadata returned alongside every query response */
@@ -115,6 +119,22 @@ export interface ChatMessage {
   statusCode?: number;
   /** Original query text, stored on error messages for retry */
   originalQuery?: string;
+  /** Strand ID for multi-turn conversation management */
+  strandId?: string;
+}
+
+/** Represents a conversation strand for multi-turn queries */
+export interface ConversationStrand {
+  id: string;
+  cardId: string;
+  messages: ChatMessage[];
+  context: {
+    query: string;
+    rawData?: Record<string, unknown>;
+    metadata: MetaPayload;
+  };
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +151,12 @@ export interface CardState {
   pinned: boolean;
   width: '50%' | '100%';
   createdAt: number;
+  /** Current selected visualization type on the card (may differ from original) */
+  selectedVisualizationType?: ChartType | 'text' | null;
+  /** Available visualization types for this result (for dropdown) */
+  availableVisualizationTypes?: (ChartType | 'text')[];
+  /** Cache of previously rendered chart types to avoid re-processing */
+  renderCache?: Record<string, RenderedOutput>;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +169,10 @@ export interface SessionState {
   chatThread: ChatMessage[];
   cards: Record<string, CardState>;
   activeCardId: string | null;
+
+  // Conversation strands for multi-turn queries
+  strands: Record<string, ConversationStrand>;
+  activeStrandId: string | null;
 
   // Sidebar
   chatHistory: ThreadSummary[];
@@ -157,13 +187,20 @@ export interface SessionState {
   // Storage error (user-facing message for quota exceeded, etc.)
   storageError: string | null;
 
+  // Transient query cancellation state (not persisted)
+  _activeAbortController: AbortController | null;
+  _activeCorrelationId: string | null;
+
   // Actions
   submitQuery: (queryText: string) => Promise<void>;
+  submitFollowUpQuery: (strandId: string, followUpQuery: string) => Promise<void>;
+  cancelQuery: () => Promise<void>;
   setActiveCard: (id: string | null) => void;
   pinCard: (id: string) => void;
   unpinCard: (id: string) => void;
   resizeCard: (id: string, width: '50%' | '100%') => void;
   reorderCard: (id: string, newIndex: number) => void;
+  changeCardVisualizationType: (cardId: string, newType: ChartType | 'text') => Promise<void>;
   toggleSidebar: () => void;
   toggleTraceabilityPanel: () => void;
   toggleStatsPanel: () => void;
@@ -175,6 +212,8 @@ export interface SessionState {
   loadChatThread: (id: string) => void;
   deleteChatThread: (id: string) => void;
   renameChatThread: (id: string, newName: string) => void;
+  createStrand: (cardId: string) => string;
+  deleteStrand: (strandId: string) => void;
 }
 
 // ---------------------------------------------------------------------------

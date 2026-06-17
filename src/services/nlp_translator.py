@@ -210,6 +210,7 @@ Respond with ONLY one word: lookup, aggregation, or comparison. Do not include a
 
 
 class NLPTranslator:
+    
     """Translates natural language queries into Structured Intents.
     Orchestrates entity resolution against the Ontology Store, history-based
     routing bias from the Query History Store, and query type classification
@@ -226,6 +227,7 @@ class NLPTranslator:
         history_store: QueryHistoryStore | None = None,
         classifier: BedrockClassifier | None = None,
         similarity_threshold: float = SIMILARITY_THRESHOLD,
+        registered_agent_ids: list[str] | None = None,
     ):
         """Initialize the NLP Translator with its dependencies.
 
@@ -238,11 +240,14 @@ class NLPTranslator:
                 Defaults to a Claude Sonnet classifier.
             similarity_threshold: Minimum cosine similarity for history matches.
                 Defaults to 0.85.
+            registered_agent_ids: Optional list of currently registered agent IDs.
+                Used for agent-aware tie-breaking during entity resolution.
         """
         self.ontology_store = ontology_store or OntologyStore()
         self.history_store = history_store
         self.classifier = classifier or BedrockClassifier()
         self.similarity_threshold = similarity_threshold
+        self._registered_agent_ids = set(registered_agent_ids) if registered_agent_ids else set()
         self._classification_cache: LRUCache[str, str] = LRUCache(max_size=1000)
 
     async def translate(
@@ -406,12 +411,42 @@ class NLPTranslator:
 
         return {}
 
+    # Mapping from detected keywords to ontology data_source property values
+    DATA_SOURCE_KEYWORD_MAP: dict[str, str] = {
+        "redshift": "redshift",
+        "csv": "product_catalog",
+        "product catalog": "product_catalog",
+        "json": "financial_data",
+    }
+
+    def _detect_data_source(self, query_text: str) -> str | None:
+        text_lower = query_text.lower()
+        sorted_keywords = sorted(
+            self.DATA_SOURCE_KEYWORD_MAP.keys(), key=len, reverse=True
+        )
+        for keyword in sorted_keywords:
+            if keyword in text_lower:
+                return self.DATA_SOURCE_KEYWORD_MAP[keyword]
+        return None
+
     def _resolve_entities(self, query_text: str) -> list[str]:
         """Resolve entity references in the query against the Ontology Store.
 
-        For each keyword, takes only the TOP-RANKED match (best score).
-        Strongly prefers data-source concepts over shared dimensions.
-        Only returns exact concept_id matches or strong label matches.
+        Collects ALL matching concepts per keyword, then applies filtering
+        and re-ranking before selecting the best candidate for each keyword.
+
+        Pipeline per keyword:
+        1. Retrieve all matching concepts from the ontology store
+        2. Filter to data-source concepts (those with an agent_id)
+        3. Apply data-source filtering if an explicit source was detected
+           - If filtering removes all candidates, fall back to unfiltered set
+        4. Re-rank candidates using tie-breaking rules
+        5. Select the best candidate after filtering/re-ranking
+
+        Data-source filtering behavior:
+        - When user mentions "redshift", "csv", "json", or "product catalog" in query
+        - Concepts without matching data_source property are filtered out
+        - If no concepts remain after filtering, fall back to all data-source concepts
 
         Args:
             query_text: The natural language query text.
@@ -421,6 +456,7 @@ class NLPTranslator:
             Empty list if no concepts match.
         """
         keywords = self._extract_keywords(query_text)
+        detected_source = self._detect_data_source(query_text)
         resolved_ids: list[str] = []
         seen: set[str] = set()
 
@@ -429,16 +465,149 @@ class NLPTranslator:
             if not concepts:
                 continue
 
-            # Only take the TOP match for each keyword (highest ranked by search)
-            top_concept = concepts[0]
-            
-            # Only include if it's a data-source concept (has agent_id)
-            if (top_concept.properties.get("agent_id") and 
-                top_concept.concept_id not in seen):
-                resolved_ids.append(top_concept.concept_id)
-                seen.add(top_concept.concept_id)
+            # Step 1: Collect ALL candidates that are data-source concepts
+            candidates = [
+                c for c in concepts if c.properties.get("agent_id")
+            ]
+            if not candidates:
+                continue
+
+            # Step 2: Apply data-source filtering if explicit source detected
+            if detected_source:
+                filtered = [
+                    c for c in candidates
+                    if c.properties.get("data_source") == detected_source
+                ]
+                # Only use filtered set if it contains at least one candidate
+                if filtered:
+                    candidates = filtered
+                else:
+                    # Log fallback when filtering would remove all candidates
+                    logger.debug(
+                        json.dumps({
+                            "service_name": "nlp_translator",
+                            "operation": "resolve_entities",
+                            "event": "data_source_filter_fallback",
+                            "keyword": keyword,
+                            "detected_source": detected_source,
+                            "unfiltered_count": len(candidates),
+                        })
+                    )
+
+            # Step 3: Re-rank candidates
+            # Currently uses ontology store ordering (score-based).
+            # Future tasks (2.3, 2.4) will add agent-aware tie-breaking
+            # and default Redshift preference here.
+            candidates = self._rank_candidates(candidates)
+
+            # Step 4: Select the best candidate
+            best = candidates[0]
+            if best.concept_id not in seen:
+                resolved_ids.append(best.concept_id)
+                seen.add(best.concept_id)
 
         return resolved_ids
+
+    def _rank_candidates(self, candidates: list) -> list:
+        """Re-rank a list of candidate concepts after filtering.
+
+        Implements multi-stage tie-breaking:
+        1. Primary: Concepts backed by registered/active agents are preferred
+        2. Secondary: Redshift-backed concepts are preferred over legacy
+           JSON/CSV concepts (task 2.4)
+        3. Tertiary: Preserve ontology store's original ordering (stable sort)
+
+        Args:
+            candidates: List of OntologyConcept objects, pre-sorted by
+                ontology store match score.
+
+        Returns:
+            Re-ranked list of OntologyConcept objects (best first).
+        """
+        if not candidates:
+            return candidates
+
+        # Get the base score from the first candidate (all should have same score
+        # when we're doing tie-breaking)
+        base_score = candidates[0].properties.get("score", 0)
+
+        # Group candidates by their base score to identify ties
+        score_groups: dict[int | float, list] = {}
+        for candidate in candidates:
+            score = candidate.properties.get("score", 0)
+            if score not in score_groups:
+                score_groups[score] = []
+            score_groups[score].append(candidate)
+
+        # If there's only one group (all candidates have same score), apply tie-breaking
+        if len(score_groups) == 1:
+            # Apply agent-aware tie-breaking
+            return self._apply_agent_aware_tie_breaking(candidates)
+
+        # Multiple scores - return candidates sorted by score (descending)
+        # and apply agent-aware tie-breaking within each score group
+        sorted_groups = sorted(score_groups.items(), key=lambda x: x[0], reverse=True)
+        result = []
+        for score, group in sorted_groups:
+            result.extend(self._apply_agent_aware_tie_breaking(group))
+        return result
+
+    def _apply_agent_aware_tie_breaking(self, candidates: list) -> list:
+        """Apply agent-aware tie-breaking to a list of candidates.
+
+        Prefer concepts whose agent_id matches a currently registered agent.
+        Among registered agents, prefer Redshift-backed concepts over legacy
+        JSON/CSV concepts.
+
+        Args:
+            candidates: List of OntologyConcept objects (all with same base score).
+
+        Returns:
+            Re-ranked list with registered agents first, then Redshift preference.
+        """
+        if not candidates:
+            return candidates
+
+        registered_ids = self._registered_agent_ids
+
+        # Score each candidate: lower = better
+        def candidate_rank(c):
+            """Calculate rank score for a candidate.
+            
+            Priority:
+            1. Registered agent (rank 0) vs unregistered (rank 1)
+            2. Redshift data source (rank 0) vs legacy (rank 1)
+            3. Original position (to maintain stable sorting)
+            """
+            agent_id = c.properties.get("agent_id", "")
+            data_source = c.properties.get("data_source", "")
+            
+            is_registered = 0 if agent_id in registered_ids else 1
+            is_redshift = 0 if data_source == "redshift" else 1
+            
+            return (is_registered, is_redshift)
+
+        # Sort by rank score, then preserve original order for ties (stable sort)
+        return sorted(candidates, key=candidate_rank)
+
+    def update_registered_agents(self, agent_ids: list[str]) -> None:
+        """Update the list of registered agent IDs for tie-breaking.
+
+        Call this when the orchestrator's agent registry changes to ensure
+        entity resolution always has the latest agent availability.
+
+        Args:
+            agent_ids: List of currently registered agent IDs.
+        """
+        self._registered_agent_ids = set(agent_ids)
+        logger.debug(
+            json.dumps({
+                "service_name": "nlp_translator",
+                "operation": "update_registered_agents",
+                "event": "agent_registry_updated",
+                "agent_count": len(agent_ids),
+            })
+        )
 
     def _extract_keywords(self, query_text: str) -> list[str]:
         """Extract meaningful keywords from query text for ontology search.

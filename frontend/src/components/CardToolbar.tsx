@@ -15,10 +15,11 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import type { CardState } from '../types';
+import type { CardState, ChartType } from '../types';
 import { useSessionStore } from '../store/sessionStore';
 import { exportCSV } from '../utils/csvExport';
 import { exportPNG } from '../utils/pngExport';
+import { AVAILABLE_VIZ_TYPES } from '../utils/chartTypeConverter';
 
 export interface CardToolbarProps {
   card: CardState;
@@ -39,9 +40,12 @@ export function CardToolbar({
   const pinCard = useSessionStore((s) => s.pinCard);
   const unpinCard = useSessionStore((s) => s.unpinCard);
   const saveSavedPrompt = useSessionStore((s) => s.saveSavedPrompt);
+  const changeCardVisualizationType = useSessionStore((s) => s.changeCardVisualizationType);
 
   const [exportError, setExportError] = useState<string | null>(null);
+  const [vizTypeMenuOpen, setVizTypeMenuOpen] = useState(false);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vizMenuRef = useRef<HTMLDivElement>(null);
 
   // Clear export error after a delay
   const showExportError = useCallback((message: string) => {
@@ -228,6 +232,16 @@ export function CardToolbar({
     [card.query, saveSavedPrompt],
   );
 
+  // ----- Change Visualization Type -----
+  const handleChangeVisualizationType = useCallback(
+    (e: React.MouseEvent, newType: ChartType | 'text') => {
+      e.stopPropagation();
+      changeCardVisualizationType(card.id, newType);
+      setVizTypeMenuOpen(false);
+    },
+    [card.id, changeCardVisualizationType],
+  );
+
   return (
     <div className="relative">
       <div
@@ -262,6 +276,61 @@ export function CardToolbar({
 
         {/* Spacer */}
         <div className="flex-1" />
+
+        {/* Visualization Type Selector */}
+        <div className="relative" ref={vizMenuRef}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setVizTypeMenuOpen(!vizTypeMenuOpen);
+            }}
+            className="p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
+            title="Change visualization type"
+            aria-label="Change visualization type"
+            aria-haspopup="menu"
+            aria-expanded={vizTypeMenuOpen}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              />
+            </svg>
+          </button>
+
+          {/* Dropdown Menu */}
+          {vizTypeMenuOpen && (
+            <div
+              className="absolute right-0 mt-1 w-32 bg-bg-secondary border border-border-default rounded-lg shadow-card z-20 py-1"
+              role="menu"
+            >
+              {AVAILABLE_VIZ_TYPES.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={(e) => handleChangeVisualizationType(e, type)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors duration-200 ${
+                    card.selectedVisualizationType === type
+                      ? 'bg-accent-primary/10 text-accent-primary font-medium'
+                      : 'text-text-primary hover:bg-bg-input'
+                  }`}
+                  role="menuitem"
+                >
+                  {type === 'text' ? 'Text' : type.charAt(0).toUpperCase() + type.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Download PNG */}
         <button

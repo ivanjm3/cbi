@@ -292,6 +292,9 @@ async def invoke_agent(request: Request, body: InvokeRequest) -> JSONResponse:
     data source(s). No LLM call — the entity_refs from the NLP translator
     already tell us which data to fetch.
 
+    Checks for upstream disconnection before executing S3/file I/O and
+    returns CANCELLED status if detected.
+
     Args:
         request: The inbound FastAPI request.
         body: Request body with the structured intent.
@@ -309,6 +312,17 @@ async def invoke_agent(request: Request, body: InvokeRequest) -> JSONResponse:
             payload=None,
             error_type="INVALID_INTENT",
             error_description=f"Failed to parse structured intent: {e}",
+            agent_id=AGENT_ID,
+            data_source="multi-source",
+        )
+        return JSONResponse(status_code=200, content=result.model_dump(mode="json"))
+
+    # Check for upstream disconnection before expensive I/O operations
+    if await request.is_disconnected():
+        logger.info(f"Client disconnected before data source query, correlation_id={correlation_id}")
+        result = AgentResult(
+            status="CANCELLED",
+            payload=None,
             agent_id=AGENT_ID,
             data_source="multi-source",
         )

@@ -18,33 +18,33 @@ logger = logging.getLogger(__name__)
 
 # Single unified agent registration
 AGENT_REGISTRATIONS = [
-    # {
-    #     "agent_id": "spoke-agent",
-    #     "agent_name": "Data Retrieval Agent",
-    #     "data_source": "multi-source",
-    #     "endpoint_url": AGENT_A_URL,
-    #     "entity_refs": [
-    #         "ontology:sales_revenue",
-    #         "ontology:order_volume",
-    #         "ontology:return_rate",
-    #         "ontology:quarterly_report",
-    #         "ontology:product_catalog",
-    #         "ontology:inventory_stock",
-    #         "ontology:product_pricing",
-    #         "ontology:supplier_info",
-    #     ],
-    # },
     {
-        "agent_id": "redshift-spoke-agent",
-        "agent_name": "Redshift Spoke Agent",
-        "data_source": "redshift",
-        "endpoint_url": REDSHIFT_AGENT_URL,
+        "agent_id": "spoke-agent",
+        "agent_name": "Data Retrieval Agent",
+        "data_source": "multi-source",
+        "endpoint_url": AGENT_A_URL,
         "entity_refs": [
-            "ontology:sales_transactions",
-            "ontology:customer_segments",
-            "ontology:employee_performance",
+            "ontology:sales_revenue",
+            "ontology:order_volume",
+            "ontology:return_rate",
+            "ontology:quarterly_report",
+            "ontology:product_catalog",
+            "ontology:inventory_stock",
+            "ontology:product_pricing",
+            "ontology:supplier_info",
         ],
     },
+    # {
+    #     "agent_id": "redshift-spoke-agent",
+    #     "agent_name": "Redshift Spoke Agent",
+    #     "data_source": "redshift",
+    #     "endpoint_url": REDSHIFT_AGENT_URL,
+    #     "entity_refs": [
+    #         "ontology:sales_transactions",
+    #         "ontology:customer_segments",
+    #         "ontology:employee_performance",
+    #     ],
+    # },
 ]
 
 

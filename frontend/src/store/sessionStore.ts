@@ -16,6 +16,8 @@ import type {
   ThreadSummary,
   SavedPrompt,
   TransparencyData,
+  ConversationStrand,
+  ChartType,
 } from '../types';
 import { queryBackend } from '../api/queryApi';
 import { parseUserRequestedChartType } from '../utils/chartSelector';
@@ -59,6 +61,8 @@ type PersistedState = {
   chatThread: ChatMessage[];
   cards: Record<string, CardState>;
   activeCardId: string | null;
+  strands: Record<string, ConversationStrand>;
+  activeStrandId: string | null;
   chatHistory: ThreadSummary[];
   savedPrompts: SavedPrompt[];
   sidebarCollapsed: boolean;
@@ -180,6 +184,8 @@ export const useSessionStore = create<SessionState>()(
       chatThread: [],
       cards: {},
       activeCardId: null,
+      strands: {},
+      activeStrandId: null,
       chatHistory: [],
       savedPrompts: loadSavedPromptsFromStorage(),
       sidebarCollapsed: false,
@@ -187,6 +193,11 @@ export const useSessionStore = create<SessionState>()(
       statsPanelCollapsed: false,
       loading: false,
       storageError: null,
+
+      // ----- Transient state for query cancellation (not persisted) -----
+      // Module-level refs to track active query for cancellation
+      _activeAbortController: null as AbortController | null,
+      _activeCorrelationId: null as string | null,
 
       // ----- Actions -----
 
@@ -202,6 +213,11 @@ export const useSessionStore = create<SessionState>()(
         };
 
         const state = get();
+
+        // Create abort controller and correlation ID for this query
+        const { generateCorrelationId, cancelQuery } = await import('../api/queryApi');
+        const abortController = new AbortController();
+        const correlationId = generateCorrelationId();
 
         // Auto-update the current thread's entry in chat history
         // If this is the FIRST message in the thread, create a history entry
@@ -219,13 +235,20 @@ export const useSessionStore = create<SessionState>()(
             loading: true,
             chatThread: [userMessage],
             chatHistory: [summary, ...state.chatHistory].slice(0, MAX_CHAT_HISTORY),
+            _activeAbortController: abortController,
+            _activeCorrelationId: correlationId,
           });
         } else {
-          set({ loading: true, chatThread: [...state.chatThread, userMessage] });
+          set({
+            loading: true,
+            chatThread: [...state.chatThread, userMessage],
+            _activeAbortController: abortController,
+            _activeCorrelationId: correlationId,
+          });
         }
 
         try {
-          const result = await queryBackend(queryText);
+          const result = await queryBackend(queryText, correlationId, abortController.signal);
 
           if (result.ok) {
             const renderedOutput = result.data;
@@ -272,7 +295,7 @@ export const useSessionStore = create<SessionState>()(
             const systemMessage: ChatMessage = {
               id: generateId(),
               role: 'system',
-              content: renderedOutput.description,
+              content: renderedOutput.description ?? 'Response received.',
               cardId,
               timestamp: Date.now(),
             };
@@ -283,6 +306,8 @@ export const useSessionStore = create<SessionState>()(
               chatThread: [...state.chatThread, systemMessage],
               activeCardId: cardId,
               loading: false,
+              _activeAbortController: null,
+              _activeCorrelationId: null,
             });
 
             // Sync current thread to its history entry
@@ -317,6 +342,8 @@ export const useSessionStore = create<SessionState>()(
             set({
               chatThread: [...get().chatThread, errorMessage],
               loading: false,
+              _activeAbortController: null,
+              _activeCorrelationId: null,
             });
           }
         } catch (err: unknown) {
@@ -334,8 +361,45 @@ export const useSessionStore = create<SessionState>()(
           set({
             chatThread: [...get().chatThread, errorMessage],
             loading: false,
+            _activeAbortController: null,
+            _activeCorrelationId: null,
           });
         }
+      },
+
+      cancelQuery: async () => {
+        const state = get();
+        if (!state._activeAbortController || !state._activeCorrelationId) {
+          return; // No active query to cancel
+        }
+
+        // Abort the in-flight request
+        state._activeAbortController.abort();
+
+        // Send cancellation request to backend
+        const { cancelQuery: cancelQueryAPI } = await import('../api/queryApi');
+        await cancelQueryAPI(state._activeCorrelationId);
+
+        // Reset state
+        set({
+          loading: false,
+          _activeAbortController: null,
+          _activeCorrelationId: null,
+        });
+
+        // Append system message indicating cancellation
+        const cancelMessage: ChatMessage = {
+          id: generateId(),
+          role: 'system',
+          content: 'Query cancelled.',
+          timestamp: Date.now(),
+        };
+
+        set({
+          chatThread: [...get().chatThread, cancelMessage],
+        });
+
+        // Re-enable input
       },
 
       setActiveCard: (id: string | null) => {
@@ -519,15 +583,359 @@ export const useSessionStore = create<SessionState>()(
       clearStorageError: () => {
         set({ storageError: null });
       },
+
+      createStrand: (cardId: string) => {
+        const strandId = generateId();
+        const state = get();
+        const card = state.cards[cardId];
+        if (!card || !card.renderedOutput) return strandId;
+
+        const strandRawData = card.renderedOutput.raw_data != null ? card.renderedOutput.raw_data : undefined;
+        const strand: ConversationStrand = {
+          id: strandId,
+          cardId,
+          messages: [],
+          context: {
+            query: card.query,
+            rawData: strandRawData,
+            metadata: card.renderedOutput.metadata,
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        set({
+          strands: { ...state.strands, [strandId]: strand },
+          activeStrandId: strandId,
+        });
+
+        return strandId;
+      },
+
+      deleteStrand: (strandId: string) => {
+        const state = get();
+        const { [strandId]: _, ...remainingStrands } = state.strands;
+        set({
+          strands: remainingStrands,
+          activeStrandId: state.activeStrandId === strandId ? null : state.activeStrandId,
+        });
+      },
+
+      changeCardVisualizationType: async (cardId: string, newType: ChartType | 'text') => {
+        const state = get();
+        const card = state.cards[cardId];
+        if (!card) return;
+
+        // ✅ CHECK CACHE FIRST — don't re-process if we already have this type
+        const cached = card.renderCache?.[newType];
+        if (cached) {
+          set({
+            cards: {
+              ...state.cards,
+              [cardId]: {
+                ...card,
+                selectedVisualizationType: newType,
+                renderedOutput: cached,
+              },
+            },
+          });
+          return;
+        }
+
+        set({ loading: true });
+
+        try {
+          const { convertChartType } = await import('../api/queryApi');
+          
+          // Get raw data for re-rendering — use raw_data first, fallback to chart_data
+          const rawData = card.renderedOutput.raw_data || card.renderedOutput.chart_data;
+          if (!rawData) {
+            // Fallback: re-submit original query with chart type hint
+            const { queryBackend } = await import('../api/queryApi');
+            const result = await queryBackend(
+              `${card.query} (show as ${newType})`,
+            );
+            if (result.ok) {
+              const updatedCache = { ...(card.renderCache || {}), [newType]: result.data };
+              set({
+                cards: {
+                  ...get().cards,
+                  [cardId]: {
+                    ...card,
+                    selectedVisualizationType: newType,
+                    renderedOutput: result.data,
+                    renderCache: updatedCache,
+                  },
+                },
+                loading: false,
+              });
+            } else {
+              set({ loading: false });
+            }
+            return;
+          }
+
+          const result = await convertChartType(rawData, newType, card.query);
+
+          if (result.ok) {
+            // Cache the result for future switches
+            const updatedCache = { ...(card.renderCache || {}), [newType]: result.data };
+            set({
+              cards: {
+                ...get().cards,
+                [cardId]: {
+                  ...card,
+                  selectedVisualizationType: newType,
+                  renderedOutput: result.data,
+                  renderCache: updatedCache,
+                },
+              },
+              loading: false,
+            });
+          } else {
+            set({ loading: false });
+          }
+        } catch (err) {
+          console.error('Chart conversion error:', err);
+          set({ loading: false });
+        }
+      },
+
+      submitFollowUpQuery: async (strandId: string, followUpQuery: string) => {
+        if (!followUpQuery.trim()) return;
+
+        const state = get();
+        const strand = state.strands[strandId];
+        if (!strand) return;
+
+        const userMessage: ChatMessage = {
+          id: generateId(),
+          role: 'user',
+          content: followUpQuery,
+          timestamp: Date.now(),
+          strandId,
+        };
+
+        // Add follow-up message to strand immediately
+        const updatedStrand: ConversationStrand = {
+          ...strand,
+          messages: [...strand.messages, userMessage],
+          updatedAt: Date.now(),
+        };
+
+        set({
+          loading: true,
+          strands: { ...state.strands, [strandId]: updatedStrand },
+        });
+
+        // Check if user is asking for a visualization change
+        const chartTypeKeywords: Record<string, ChartType | 'text'> = {
+          'as a bar chart': 'bar', 'as bar chart': 'bar', 'as a bar': 'bar', 'bar chart': 'bar',
+          'as a line chart': 'line', 'as line chart': 'line', 'as a line': 'line', 'line chart': 'line',
+          'as a scatter': 'scatter', 'scatter plot': 'scatter',
+          'as a pie chart': 'pie', 'as pie chart': 'pie', 'pie chart': 'pie', 'as a pie': 'pie',
+          'as a table': 'table', 'as table': 'table',
+          'as text': 'text', 'as a text': 'text',
+        };
+
+        // Check for chart modification keywords (add legend, change title, etc.)
+        const chartModificationKeywords = [
+          'add a legend', 'add legend', 'show legend', 'hide legend',
+          'add a title', 'add title', 'change title', 'set title',
+          'add label', 'add labels', 'change label', 'change labels',
+          'change color', 'change colours', 'make it', 'update the',
+          'add annotation', 'add text', 'write', 'display on',
+          'remove', 'hide', 'show grid', 'hide grid',
+          'add axis', 'change axis', 'rotate',
+        ];
+
+        const queryLower = followUpQuery.toLowerCase();
+        let detectedChartType: ChartType | 'text' | null = null;
+        for (const [keyword, chartType] of Object.entries(chartTypeKeywords)) {
+          if (queryLower.includes(keyword)) {
+            detectedChartType = chartType;
+            break;
+          }
+        }
+
+        const isChartModification = chartModificationKeywords.some((kw) => queryLower.includes(kw));
+
+        // Build full conversation history for context
+        const conversationHistory = updatedStrand.messages
+          .map((m) => `${m.role === 'user' ? 'User' : 'System'}: ${m.content}`)
+          .join('\n');
+
+        // If it's a visualization request OR chart modification, route through viz pipeline
+        if ((detectedChartType || isChartModification) && strand.cardId) {
+          try {
+            const abortController = new AbortController();
+            set({ _activeAbortController: abortController });
+
+            const card = get().cards[strand.cardId];
+
+            // Build context-rich query with full conversation history
+            const contextParts = [
+              `Original query: "${strand.context.query}"`,
+              conversationHistory ? `\nConversation so far:\n${conversationHistory}` : '',
+              `\nLatest request: ${followUpQuery}`,
+              detectedChartType ? `\n(MUST show as ${detectedChartType} chart)` : '',
+            ];
+            const contextualChartQuery = contextParts.filter(Boolean).join('');
+
+            const { queryBackend } = await import('../api/queryApi');
+            const result = await queryBackend(contextualChartQuery, undefined, abortController.signal);
+
+            if (result.ok) {
+              const currentCards = get().cards;
+              if (card) {
+                const newOutput = result.data;
+                const updatedCard = {
+                  ...card,
+                  renderedOutput: newOutput,
+                  ...(detectedChartType ? { selectedVisualizationType: detectedChartType } : {}),
+                  renderCache: detectedChartType
+                    ? { ...(card.renderCache || {}), [detectedChartType]: newOutput }
+                    : card.renderCache,
+                };
+                set({ cards: { ...currentCards, [strand.cardId]: updatedCard } });
+              }
+
+              const systemMessage: ChatMessage = {
+                id: generateId(),
+                role: 'system',
+                content: result.data.description || `Visualization updated.`,
+                timestamp: Date.now(),
+                strandId,
+              };
+
+              const finalStrand = get().strands[strandId];
+              if (finalStrand) {
+                set({
+                  strands: {
+                    ...get().strands,
+                    [strandId]: {
+                      ...finalStrand,
+                      messages: [...finalStrand.messages, systemMessage],
+                      updatedAt: Date.now(),
+                    },
+                  },
+                  loading: false,
+                  _activeAbortController: null,
+                });
+              }
+              return;
+            }
+          } catch (err) {
+            console.warn('Chart/modification request failed, falling back:', err);
+          }
+        }
+
+        try {
+          // Normal follow-up: include full conversation context
+          const contextualQuery = `
+Original query: "${strand.context.query}"
+${conversationHistory ? `\nConversation history:\n${conversationHistory}\n` : ''}
+Follow-up question: ${followUpQuery}
+
+Answer the follow-up question. Use the conversation context to understand what "this", "that", "it" refers to.
+          `.trim();
+
+          // Create abort controller for cancellation support
+          const abortController = new AbortController();
+          set({ _activeAbortController: abortController });
+
+          // Use the existing queryBackend endpoint
+          const { queryBackend } = await import('../api/queryApi');
+          const result = await queryBackend(contextualQuery, undefined, abortController.signal);
+
+          if (result.ok) {
+            const followUpResponse = result.data;
+
+            // Create system message with the follow-up response
+            const systemMessage: ChatMessage = {
+              id: generateId(),
+              role: 'system',
+              content: followUpResponse?.description ?? followUpResponse?.text_content ?? 'Response received.',
+              timestamp: Date.now(),
+              strandId,
+            };
+
+            // Update strand with response
+            const finalStrand = get().strands[strandId];
+            if (finalStrand) {
+              set({
+                strands: {
+                  ...get().strands,
+                  [strandId]: {
+                    ...finalStrand,
+                    messages: [...finalStrand.messages, systemMessage],
+                    updatedAt: Date.now(),
+                  },
+                },
+                loading: false,
+              });
+            }
+          } else {
+            const errorMessage: ChatMessage = {
+              id: generateId(),
+              role: 'error',
+              content: result.error?.error_message || 'Follow-up query failed. Please try again.',
+              timestamp: Date.now(),
+              strandId,
+              statusCode: result.status,
+            };
+
+            const finalStrand = get().strands[strandId];
+            if (finalStrand) {
+              set({
+                strands: {
+                  ...get().strands,
+                  [strandId]: {
+                    ...finalStrand,
+                    messages: [...finalStrand.messages, errorMessage],
+                    updatedAt: Date.now(),
+                  },
+                },
+                loading: false,
+              });
+            }
+          }
+        } catch (err) {
+          const errorMessage: ChatMessage = {
+            id: generateId(),
+            role: 'error',
+            content: err instanceof Error ? err.message : 'An unexpected error occurred',
+            timestamp: Date.now(),
+            strandId,
+          };
+
+          const finalStrand = get().strands[strandId];
+          if (finalStrand) {
+            set({
+              strands: {
+                ...get().strands,
+                [strandId]: {
+                  ...finalStrand,
+                  messages: [...finalStrand.messages, errorMessage],
+                  updatedAt: Date.now(),
+                },
+              },
+              loading: false,
+            });
+          }
+        }
+      },
     }),
     {
       name: SESSION_STORAGE_KEY,
-      version: 2,
+      version: 3,
       storage: createSafeStorage(),
       partialize: (state): PersistedState => ({
         chatThread: state.chatThread,
         cards: state.cards,
         activeCardId: state.activeCardId,
+        strands: state.strands,
+        activeStrandId: state.activeStrandId,
         chatHistory: state.chatHistory,
         savedPrompts: state.savedPrompts,
         sidebarCollapsed: state.sidebarCollapsed,

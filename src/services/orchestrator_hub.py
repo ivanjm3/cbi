@@ -15,7 +15,7 @@ Requirements: 4.1, 4.2, 4.3, 4.4, 4.6, 4.7, 4.8, 4.9, 6.5, 6.6
 
 import json
 import logging
-from typing import Any
+from typing import Any, Callable, Optional
 
 import httpx
 from strands import Agent, tool
@@ -33,6 +33,7 @@ from src.models.shared import (
     OrchestratorResponse,
     StructuredIntent,
 )
+from src.services.cancellation_registry import CancellationRegistry
 from src.services.ontology_store import OntologyStore
 from src.services.result_cache import ResultCache
 
@@ -46,6 +47,22 @@ _hub_instance: "OrchestratorHub | None" = None
 # Accumulator for dispatch results collected during a single process_intent call.
 # Reset before each agent invocation to collect fresh results.
 _dispatch_results: list[dict[str, Any]] = []
+
+# Global callback for agent registry updates (used to sync with NLPTranslator)
+_agent_registry_callback: Optional[Callable] = None
+
+
+def set_agent_registry_callback(callback: Callable) -> None:
+    """Set a callback to be invoked when the agent registry changes.
+
+    This allows external components (like NLPTranslator) to keep their
+    agent registry in sync with the orchestrator's registry.
+
+    Args:
+        callback: A callable that receives a list of registered agent IDs.
+    """
+    global _agent_registry_callback
+    _agent_registry_callback = callback
 
 
 @tool
@@ -225,6 +242,7 @@ class OrchestratorHub:
         result_cache: ResultCache | None = None,
         agent_timeout: float = AGENT_TIMEOUT_DEFAULT,
         model_id: str | None = None,
+        cancellation_registry: CancellationRegistry | None = None,
     ):
         """Initialize the Orchestrator Hub.
 
@@ -235,6 +253,8 @@ class OrchestratorHub:
                 Defaults to a new in-memory cache.
             agent_timeout: Per-agent timeout in seconds (1-300, default 30).
             model_id: Optional Bedrock model ID override for the Strands Agent.
+            cancellation_registry: Optional registry for cooperative cancellation.
+                Defaults to a new CancellationRegistry instance.
         """
         global _hub_instance
         _hub_instance = self
@@ -249,6 +269,8 @@ class OrchestratorHub:
         self._agents: dict[str, AgentRegistration] = {}
         # Correlation ID for the current request (set per-request)
         self._current_correlation_id: str = ""
+        # Cancellation registry for cooperative query cancellation
+        self._cancellation_registry = cancellation_registry or CancellationRegistry()
 
         # Initialize the Strands Agent with orchestrator tools
         from botocore.config import Config as BotoConfig
@@ -274,6 +296,9 @@ class OrchestratorHub:
         The Strands Agent reasons about which agents to call and how to
         merge results for complex cross-domain queries.
 
+        Checks the cancellation registry before dispatching and returns
+        QUERY_CANCELLED if the correlation ID has been cancelled.
+
         Args:
             intent: The structured intent from the NLP Translator.
             correlation_id: The correlation ID for downstream propagation.
@@ -282,6 +307,23 @@ class OrchestratorHub:
             OrchestratorResponse on success, OrchestratorError on failure.
         """
         self._current_correlation_id = correlation_id
+
+        # Check if already cancelled before starting any work
+        if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
+            logger.info(
+                json.dumps({
+                    "service_name": "orchestrator_hub",
+                    "operation": "process_intent",
+                    "event": "query_cancelled_before_dispatch",
+                    "query_id": str(intent.query_id),
+                    "correlation_id": correlation_id,
+                })
+            )
+            return OrchestratorError(
+                error_type="QUERY_CANCELLED",
+                message="Query was cancelled before dispatch.",
+                query_id=intent.query_id,
+            )
 
         # Step 1: Check cache (Requirement 4.1, 4.2)
         cache_key = ResultCache.generate_key(intent)
@@ -326,6 +368,17 @@ class OrchestratorHub:
             # Single-domain or simple query — fast direct dispatch
             return self._direct_dispatch(intent, resolved_agents, cache_key)
 
+    def register_cancellation(self, correlation_id: str) -> None:
+        """Register a correlation ID as cancelled in the hub's registry.
+
+        Called by the orchestrator API when it receives a cancellation
+        request from the NLP API.
+
+        Args:
+            correlation_id: The query identifier to cancel.
+        """
+        self._cancellation_registry.register(correlation_id, source="propagated")
+
     def _agent_dispatch(
         self,
         intent: StructuredIntent,
@@ -337,6 +390,8 @@ class OrchestratorHub:
         The agent reasons about which spoke agents to invoke based on
         the intent's entity_refs and ontology context, then uses the
         dispatch_to_spoke_agent tool to call them.
+
+        Checks cancellation before invoking the Strands Agent.
 
         Tool call results are captured in the module-level _dispatch_results
         accumulator during execution.
@@ -351,6 +406,25 @@ class OrchestratorHub:
         """
         global _dispatch_results
         _dispatch_results = []  # Reset accumulator for this request
+
+        correlation_id = self._current_correlation_id
+
+        # Check cancellation before invoking the (expensive) Strands Agent
+        if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
+            logger.info(
+                json.dumps({
+                    "service_name": "orchestrator_hub",
+                    "operation": "_agent_dispatch",
+                    "event": "cancelled_before_agent_invocation",
+                    "query_id": str(intent.query_id),
+                    "correlation_id": correlation_id,
+                })
+            )
+            return OrchestratorError(
+                error_type="QUERY_CANCELLED",
+                message="Query was cancelled before agent dispatch.",
+                query_id=intent.query_id,
+            )
 
         intent_json = intent.model_dump_json()
 
@@ -417,7 +491,7 @@ class OrchestratorHub:
         """Dispatch directly to all resolved agents concurrently.
 
         Entity_ref matching already identifies the correct agents.
-        Uses asyncio.gather for concurrent dispatch to all agents.
+        Checks cancellation registry before each agent dispatch.
 
         Args:
             intent: The structured intent to dispatch.
@@ -430,42 +504,66 @@ class OrchestratorHub:
         global _dispatch_results
         _dispatch_results = []  # Reset accumulator
 
+        correlation_id = self._current_correlation_id
         intent_json = intent.model_dump_json()
 
-        # Dispatch to all resolved agents concurrently
+        # Dispatch to resolved agents, checking cancellation before each
         import asyncio
+        import concurrent.futures
 
-        async def _concurrent_dispatch():
-            tasks = [
-                asyncio.to_thread(
-                    dispatch_to_spoke_agent,
-                    agent_id=agent.agent_id,
-                    endpoint_url=agent.endpoint_url,
-                    intent_json=intent_json,
-                )
-                for agent in resolved_agents
-            ]
-            await asyncio.gather(*tasks)
-
-        # Run concurrent dispatch - get or create event loop
         try:
             loop = asyncio.get_running_loop()
-            # Already in an async context — use a nested approach
-            import concurrent.futures
+            # Already in an async context — use ThreadPoolExecutor
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                futures = [
-                    pool.submit(
+                for agent in resolved_agents:
+                    # Check cancellation before each dispatch
+                    if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
+                        logger.info(
+                            json.dumps({
+                                "service_name": "orchestrator_hub",
+                                "operation": "_direct_dispatch",
+                                "event": "cancelled_mid_dispatch",
+                                "query_id": str(intent.query_id),
+                                "correlation_id": correlation_id,
+                                "skipped_agent": agent.agent_id,
+                            })
+                        )
+                        break
+                    future = pool.submit(
                         dispatch_to_spoke_agent,
                         agent_id=agent.agent_id,
                         endpoint_url=agent.endpoint_url,
                         intent_json=intent_json,
                     )
-                    for agent in resolved_agents
-                ]
-                concurrent.futures.wait(futures)
+                    future.result()  # Wait for each dispatch to complete before checking cancellation
         except RuntimeError:
-            # No running loop — use asyncio.run
-            asyncio.run(_concurrent_dispatch())
+            # No running loop — use sequential dispatch with cancellation checks
+            for agent in resolved_agents:
+                if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
+                    logger.info(
+                        json.dumps({
+                            "service_name": "orchestrator_hub",
+                            "operation": "_direct_dispatch",
+                            "event": "cancelled_mid_dispatch",
+                            "query_id": str(intent.query_id),
+                            "correlation_id": correlation_id,
+                            "skipped_agent": agent.agent_id,
+                        })
+                    )
+                    break
+                dispatch_to_spoke_agent(
+                    agent_id=agent.agent_id,
+                    endpoint_url=agent.endpoint_url,
+                    intent_json=intent_json,
+                )
+
+        # If cancelled, return QUERY_CANCELLED error
+        if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
+            return OrchestratorError(
+                error_type="QUERY_CANCELLED",
+                message="Query was cancelled during dispatch.",
+                query_id=intent.query_id,
+            )
 
         return self._build_response_from_results(intent, resolved_agents, cache_key)
 
@@ -561,6 +659,10 @@ class OrchestratorHub:
         # Cache the successful response (Requirement 4.2)
         self.result_cache.put(cache_key, response)
 
+        # Clean up cancellation entry on normal completion (Requirement 8.2)
+        if self._current_correlation_id:
+            self._cancellation_registry.remove(self._current_correlation_id)
+
         return response
 
     # --- Agent Registration (Requirements 6.5, 6.6) ---
@@ -583,6 +685,21 @@ class OrchestratorHub:
                 "entity_refs": agent_config.entity_refs,
             })
         )
+        
+        # Notify any registered callback (e.g., NLPTranslator) about registry update
+        if _agent_registry_callback:
+            try:
+                _agent_registry_callback(list(self._agents.keys()))
+            except Exception as e:
+                logger.warning(
+                    json.dumps({
+                        "service_name": "orchestrator_hub",
+                        "operation": "register_agent",
+                        "event": "callback_failed",
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    })
+                )
 
     def deregister_agent(self, agent_id: str) -> bool:
         """Remove a spoke agent from the routing table.
@@ -602,6 +719,20 @@ class OrchestratorHub:
                     "agent_id": agent_id,
                 })
             )
+            # Notify callback about registry update
+            if _agent_registry_callback:
+                try:
+                    _agent_registry_callback(list(self._agents.keys()))
+                except Exception as e:
+                    logger.warning(
+                        json.dumps({
+                            "service_name": "orchestrator_hub",
+                            "operation": "deregister_agent",
+                            "event": "callback_failed",
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                        })
+                    )
             return True
         return False
 

@@ -1,9 +1,12 @@
 """FastAPI application for the Orchestrator Hub service.
 
 Exposes endpoints for processing structured intents and managing
-spoke agent registrations. Runs on port 8002.
+spoke agent registrations. Also provides POST /internal/cancel for
+cooperative query cancellation propagation from the NLP API.
 
-Requirements: 4.1, 6.5, 11.4
+Runs on port 8002.
+
+Requirements: 4.1, 5.1, 5.2, 6.5, 11.4
 """
 
 import logging
@@ -59,6 +62,17 @@ class ProcessRequest(BaseModel):
     structured_intent: dict
 
 
+class InternalCancelRequest(BaseModel):
+    """Request body for POST /internal/cancel."""
+    correlation_id: str
+
+
+class InternalCancelResponse(BaseModel):
+    """Response body for POST /internal/cancel."""
+    cancelled: bool
+    correlation_id: str
+
+
 class AgentRegistrationRequest(BaseModel):
     """Request body for POST /admin/agents."""
 
@@ -83,6 +97,36 @@ async def health_check() -> dict:
         "port": ORCHESTRATOR_PORT,
         "registered_agents": len(hub.get_registered_agents()),
     }
+
+
+@app.post("/internal/cancel")
+async def cancel_internal_endpoint(body: InternalCancelRequest) -> JSONResponse:
+    """Internal cancel endpoint called by NLP API.
+
+    Marks the correlation ID as cancelled in the orchestrator hub's
+    cancellation registry so the dispatch loop can skip remaining agents.
+
+    Returns 200 with confirmation regardless of whether the query
+    was active (idempotent / no-op safe).
+
+    Args:
+        body: The request body containing the correlation_id to cancel.
+
+    Returns:
+        JSONResponse with cancellation status.
+    """
+    hub = get_hub()
+    hub.register_cancellation(body.correlation_id)
+
+    logger.info(f"Internal cancellation registered for correlation_id={body.correlation_id}")
+
+    return JSONResponse(
+        status_code=200,
+        content=InternalCancelResponse(
+            cancelled=True,
+            correlation_id=body.correlation_id,
+        ).model_dump(),
+    )
 
 
 @app.post("/internal/process")

@@ -118,6 +118,9 @@ async def invoke_agent(request: Request, body: InvokeRequest) -> JSONResponse:
     via the SQL Generator, executes it through the Redshift Connector,
     and returns an AgentResult with the appropriate data_type mapping.
 
+    Checks for upstream disconnection before executing the expensive
+    Redshift query and returns CANCELLED status if detected.
+
     Args:
         request: The inbound FastAPI request.
         body: Request body containing the structured_intent dict.
@@ -150,6 +153,17 @@ async def invoke_agent(request: Request, body: InvokeRequest) -> JSONResponse:
             payload=None,
             error_type=gen_result.error_type,
             error_description=gen_result.description,
+            agent_id=AGENT_ID,
+            data_source="redshift",
+        )
+        return JSONResponse(status_code=200, content=result.model_dump(mode="json"))
+
+    # Check for upstream disconnection before expensive operation
+    if await request.is_disconnected():
+        logger.info(f"Client disconnected before Redshift query, correlation_id={correlation_id}")
+        result = AgentResult(
+            status="CANCELLED",
+            payload=None,
             agent_id=AGENT_ID,
             data_source="redshift",
         )
