@@ -67,33 +67,28 @@ def nlp_translator_with_agents(ontology_store):
     )
 
 
-# Task 6.1: Query "show me sales by region" should route to redshift-spoke-agent
-def test_query_sales_by_region_routes_to_redshift(nlp_translator_with_agents):
-    """Query with ambiguous 'sales' keyword should default to Redshift-backed concepts.
+# Task 6.1: Query "show me workforce metrics" should route to redshift-spoke-agent
+def test_query_workforce_routes_to_redshift(nlp_translator_with_agents):
+    """Query about workforce/HR data should route to Redshift-backed concepts.
     
-    When user queries about "sales" without specifying a data source, the system
-    should prefer Redshift-backed concepts (ontology:sales_transactions with
-    agent_id: redshift-spoke-agent) over legacy JSON-backed concepts
-    (ontology:sales_revenue with agent_id: spoke-agent-json).
+    When user queries about "workforce" or "employee", the system should
+    resolve to Redshift-backed concepts (ontology:workforce_metrics with
+    agent_id: redshift-spoke-agent).
     
-    Validates: Task 6.1 - Default Redshift preference
+    Validates: Task 6.1 - Redshift routing for HR domain
     """
     translator = nlp_translator_with_agents
     
-    query = "show me sales by region"
+    query = "show me workforce metrics by department"
     result = translator._resolve_entities(query)
     
-    # Should resolve to sales_transactions (Redshift) not sales_revenue (JSON)
-    assert "ontology:sales_transactions" in result, \
-        f"Expected 'ontology:sales_transactions' for 'sales' query, got {result}"
-    
-    # Should NOT resolve to JSON-backed concept when Redshift is available
-    assert "ontology:sales_revenue" not in result, \
-        f"JSON-backed concept 'ontology:sales_revenue' should not be selected when Redshift is available"
+    # Should resolve to workforce_metrics (Redshift)
+    assert "ontology:workforce_metrics" in result, \
+        f"Expected 'ontology:workforce_metrics' for 'workforce' query, got {result}"
 
 
-# Task 6.2: Query "show me redshift employee performance" should route to redshift-spoke-agent
-def test_query_redshift_employee_performance_routes_to_redshift(nlp_translator_with_agents):
+# Task 6.2: Query "show me redshift support tickets" should route to redshift-spoke-agent
+def test_query_redshift_support_tickets_routes_to_redshift(nlp_translator_with_agents):
     """Explicit 'redshift' keyword should filter to Redshift-backed concepts.
     
     When user explicitly mentions 'redshift' in the query, the system should
@@ -103,12 +98,12 @@ def test_query_redshift_employee_performance_routes_to_redshift(nlp_translator_w
     """
     translator = nlp_translator_with_agents
     
-    query = "show me redshift employee performance"
+    query = "show me redshift support tickets"
     result = translator._resolve_entities(query)
     
-    # Should resolve to employee_performance (Redshift)
-    assert "ontology:employee_performance" in result, \
-        f"Expected 'ontology:employee_performance' for 'redshift employee performance' query, got {result}"
+    # Should resolve to support_tickets (Redshift)
+    assert "ontology:support_tickets" in result, \
+        f"Expected 'ontology:support_tickets' for 'redshift support tickets' query, got {result}"
     
     # Data source detection should work for "redshift" keyword
     detected_source = translator._detect_data_source(query)
@@ -166,9 +161,9 @@ def test_orchestrator_dispatch_with_resolved_entity_refs():
         data_source="redshift",
         endpoint_url="http://localhost:8011",
         entity_refs=[
-            "ontology:sales_transactions",
-            "ontology:customer_segments",
-            "ontology:employee_performance",
+            "ontology:workforce_metrics",
+            "ontology:support_tickets",
+            "ontology:marketing_campaigns",
         ],
     ))
     hub.register_agent(AgentRegistration(
@@ -197,7 +192,7 @@ def test_orchestrator_dispatch_with_resolved_entity_refs():
     ))
 
     # Test 1: Redshift entity_refs resolve to redshift-spoke-agent
-    resolved = hub._resolve_agents(["ontology:sales_transactions"])
+    resolved = hub._resolve_agents(["ontology:workforce_metrics"])
     assert len(resolved) == 1
     assert resolved[0].agent_id == "redshift-spoke-agent"
 
@@ -208,7 +203,7 @@ def test_orchestrator_dispatch_with_resolved_entity_refs():
 
     # Test 3: Multiple entity_refs spanning agents resolve to multiple agents
     resolved = hub._resolve_agents([
-        "ontology:sales_transactions",
+        "ontology:workforce_metrics",
         "ontology:product_catalog",
     ])
     resolved_ids = {a.agent_id for a in resolved}
@@ -224,8 +219,8 @@ def test_orchestrator_dispatch_with_resolved_entity_refs():
     intent = StructuredIntent(
         query_id=uuid.uuid4(),
         query_type="lookup",
-        entity_refs=["ontology:sales_transactions"],
-        routing_metadata={"query_text": "show me sales by region"},
+        entity_refs=["ontology:workforce_metrics"],
+        routing_metadata={"query_text": "show me workforce by department"},
         timestamp=datetime.now(timezone.utc),
     )
     # Orchestrator uses intent.entity_refs directly for resolution
@@ -261,9 +256,9 @@ def test_orchestrator_dispatch_end_to_end_with_translator(nlp_translator_with_ag
         data_source="redshift",
         endpoint_url="http://localhost:8011",
         entity_refs=[
-            "ontology:sales_transactions",
-            "ontology:customer_segments",
-            "ontology:employee_performance",
+            "ontology:workforce_metrics",
+            "ontology:support_tickets",
+            "ontology:marketing_campaigns",
         ],
     ))
     hub.register_agent(AgentRegistration(
@@ -279,16 +274,15 @@ def test_orchestrator_dispatch_end_to_end_with_translator(nlp_translator_with_ag
         ],
     ))
 
-    # NLP translator resolves "sales by region" → entity_refs
-    entity_refs = translator._resolve_entities("show me sales by region")
+    # NLP translator resolves "workforce metrics" → entity_refs
+    entity_refs = translator._resolve_entities("show me workforce metrics by department")
     assert len(entity_refs) > 0, "Translator should resolve at least one entity"
 
     # Orchestrator resolves those entity_refs to agents
     resolved_agents = hub._resolve_agents(entity_refs)
     assert len(resolved_agents) > 0, "Orchestrator should resolve at least one agent"
 
-    # The resolved agent should include redshift-spoke-agent 
-    # (since the fixed translator prefers Redshift for ambiguous "sales")
+    # The resolved agent should include redshift-spoke-agent
     resolved_ids = {a.agent_id for a in resolved_agents}
     assert "redshift-spoke-agent" in resolved_ids, \
         f"Expected redshift-spoke-agent in resolved agents, got {resolved_ids}"
@@ -330,7 +324,7 @@ def test_entity_resolution_deterministic(nlp_translator_with_agents):
     translator = nlp_translator_with_agents
     
     # Same query, multiple runs should produce same result
-    query = "show me sales"
+    query = "show me workforce metrics"
     result1 = translator._resolve_entities(query)
     result2 = translator._resolve_entities(query)
     

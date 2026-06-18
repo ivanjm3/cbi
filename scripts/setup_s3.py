@@ -70,7 +70,7 @@ def main():
     for upload in uploads:
         local_path = Path(upload["local"])
         if not local_path.exists():
-            print(f"  ⚠ SKIP  {upload['local']} (file not found)")
+            print(f"  [SKIP] {upload['local']} (file not found)")
             continue
 
         try:
@@ -80,20 +80,19 @@ def main():
                 Body=local_path.read_bytes(),
                 ContentType=upload["content_type"],
             )
-            print(f"  ✓ {upload['local']} → s3://{S3_BUCKET}/{upload['s3_key']}")
+            print(f"  [OK] {upload['local']} -> s3://{S3_BUCKET}/{upload['s3_key']}")
         except Exception as e:
-            print(f"  ✗ FAILED {upload['local']}: {e}")
+            print(f"  [FAILED] {upload['local']}: {e}")
 
     print()
     print("=" * 60)
     print("S3 setup complete!")
     print()
     print("Bucket structure:")
-    print(f"  s3://{S3_BUCKET}/ontology/         — Ontology definitions")
-    print(f"  s3://{S3_BUCKET}/history/          — Query history records")
-    print(f"  s3://{S3_BUCKET}/costs/            — Cost tracking records")
-    print(f"  s3://{S3_BUCKET}/config/           — Guardrail rules")
-    print(f"  s3://{S3_BUCKET}/data-sources/     — Spoke agent data files")
+    print(f"  s3://{S3_BUCKET}/ontology/         - Ontology definitions")
+    print(f"  s3://{S3_BUCKET}/history/          - Query history records")
+    print(f"  s3://{S3_BUCKET}/config/           - Guardrail rules")
+    print(f"  s3://{S3_BUCKET}/data-sources/     - Spoke agent data files")
 
 
 if __name__ == "__main__":

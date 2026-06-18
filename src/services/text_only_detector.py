@@ -1,7 +1,7 @@
 """
 Text-Only Output Detector
 
-Uses a small LLM (Claude Haiku) to determine if a query should receive
+Uses a small LLM (Amazon Nova Micro) to determine if a query should receive
 a text-only response vs a visualization.
 
 Requirement #6 - Option A with LLM classification.
@@ -14,7 +14,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Classification prompt for the LLM
-CLASSIFICATION_PROMPT = """You are a query classifier for a business intelligence system.
+CLASSIFICATION_PROMPT = """You are a query classifier
 Given a user's query, determine if the response should be:
 - "text": The user expects a textual answer (a number, summary, explanation, or list)
 - "chart": The user expects a visual chart or graph
@@ -61,12 +61,27 @@ class TextOnlyDetector:
         Determine if query should return text-only response.
         Uses LLM classification with keyword fallback.
 
+        Group-by queries (containing "by X", "per X", "vs") always return
+        False (chart) regardless of LLM output, because they produce
+        multi-row results that are best visualized.
+
         Args:
             query: User's query text
 
         Returns:
             True if text-only, False if visualization should be attempted
         """
+        # Hard override: group-by queries are ALWAYS charts
+        # These produce multi-row breakdowns that should be visualized
+        query_lower = query.lower().strip()
+        group_by_indicators = [
+            " by ", " per ", " across ", " for each ", " grouped by ",
+            " breakdown", " distribution", " vs ", " versus ",
+        ]
+        for kw in group_by_indicators:
+            if kw in query_lower:
+                return False
+
         # Try LLM classification first
         try:
             client = self._get_client()
@@ -82,7 +97,7 @@ class TextOnlyDetector:
 
     def _classify_with_llm(self, query: str, client) -> bool | None:
         """
-        Classify query using Bedrock Claude Haiku.
+        Classify query using Amazon Nova Micro (optimized for cost).
 
         Args:
             query: User's query text
@@ -93,26 +108,34 @@ class TextOnlyDetector:
         """
         try:
             prompt = CLASSIFICATION_PROMPT.format(query=query)
+            
+            # Use Amazon Nova Micro for cost optimization
+            model_id = "us.amazon.nova-micro-v1:0"
 
             response = client.invoke_model(
-                modelId=self._model_id,
+                modelId=model_id,
                 contentType="application/json",
                 accept="application/json",
                 body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 10,
-                    "temperature": 0,
+                    "schemaVersion": "messages-v1",
                     "messages": [
                         {
                             "role": "user",
-                            "content": prompt,
+                            "content": [{"text": prompt}],
                         }
                     ],
+                    "inferenceConfig": {
+                        "maxTokens": 10,
+                        "temperature": 0.0,
+                    },
                 }),
             )
 
             response_body = json.loads(response["body"].read())
-            content = response_body.get("content", [])
+            # Nova response format: output.message.content[0].text
+            output = response_body.get("output", {})
+            message = output.get("message", {})
+            content = message.get("content", [])
 
             if content and len(content) > 0:
                 answer = content[0].get("text", "").strip().lower()
@@ -123,7 +146,7 @@ class TextOnlyDetector:
                 elif answer == "chart":
                     return False
 
-            logger.warning(f"LLM returned unexpected classification: {content}")
+            logger.warning(f"LLM returned unexpected classification: {response_body}")
             return None
 
         except Exception as e:
@@ -152,7 +175,17 @@ class TextOnlyDetector:
             if kw in query_lower:
                 return False
 
-        # Text-only keywords
+        # GROUP BY indicators — these produce multi-row results best shown as charts
+        # Must check BEFORE text-only keywords since "average X by Y" is a chart
+        group_by_keywords = [
+            " by ", " per ", " across ", " for each ", " grouped by ",
+            " breakdown", " distribution", " vs ", " versus ",
+        ]
+        for kw in group_by_keywords:
+            if kw in query_lower:
+                return False
+
+        # Text-only keywords (only when NOT asking for a breakdown)
         text_keywords = [
             "what is the total",
             "what is the average",
@@ -215,6 +248,7 @@ class TextSummaryGenerator:
     def generate_summary(data: Any, query: str, max_length: int = 500) -> str:
         """
         Generate a text summary of data results.
+        Applies smart filtering for numeric constraints found in the query.
 
         Args:
             data: Query result data
@@ -224,6 +258,9 @@ class TextSummaryGenerator:
         Returns:
             Text summary string
         """
+        # First, try to apply numeric filtering if the query contains constraints
+        filtered_data = TextSummaryGenerator._apply_query_filters(data, query)
+
         # Try LLM-based summary
         try:
             from src.config import get_bedrock_client, DEFAULT_MODEL_ID
@@ -232,7 +269,7 @@ class TextSummaryGenerator:
             prompt = f"""Given this data from a business query, provide a concise text answer.
 
 Query: "{query}"
-Data: {json.dumps(data, default=str)[:2000]}
+Data: {json.dumps(filtered_data, default=str)[:2000]}
 
 Provide a direct, concise answer to the query. If it asks for a total or count, give the number. If it asks for a list, provide the list. Keep it under 3 sentences unless a longer explanation is needed."""
 
@@ -259,7 +296,82 @@ Provide a direct, concise answer to the query. If it asks for a total or count, 
             logger.warning(f"LLM summary generation failed: {e}")
 
         # Fallback to simple formatting
-        return TextSummaryGenerator._simple_summary(data, max_length)
+        return TextSummaryGenerator._simple_summary(filtered_data, max_length)
+
+    @staticmethod
+    def _apply_query_filters(data: Any, query: str) -> Any:
+        """
+        Apply numeric filters based on query constraints.
+        E.g., "below 50", "greater than 100", "less than", etc.
+        
+        Args:
+            data: Original data
+            query: User's query string
+            
+        Returns:
+            Filtered data
+        """
+        import re
+        
+        if not isinstance(data, (list, dict)):
+            return data
+        
+        query_lower = query.lower()
+        
+        # Parse numeric constraints from query
+        # Patterns: "below X", "less than X", "greater than X", "more than X", "over X", "under X"
+        constraints = []
+        
+        # Below/Less than/Under
+        below_match = re.search(r'(?:below|less than|under|less than|<)\s+(\d+)', query_lower)
+        if below_match:
+            threshold = int(below_match.group(1))
+            constraints.append(('below', threshold))
+        
+        # Above/Greater than/Over/More than
+        above_match = re.search(r'(?:above|greater than|over|more than|>)\s+(\d+)', query_lower)
+        if above_match:
+            threshold = int(above_match.group(1))
+            constraints.append(('above', threshold))
+        
+        # If no constraints found, return data as-is
+        if not constraints:
+            return data
+        
+        # Apply constraints to data
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            # Find numeric columns to filter on
+            first_row = data[0]
+            numeric_cols = [k for k, v in first_row.items() if isinstance(v, (int, float))]
+            
+            if not numeric_cols:
+                return data
+            
+            filtered = []
+            for row in data:
+                matches_all = True
+                for col in numeric_cols:
+                    val = row.get(col)
+                    if not isinstance(val, (int, float)):
+                        continue
+                    
+                    for op, threshold in constraints:
+                        if op == 'below' and val >= threshold:
+                            matches_all = False
+                            break
+                        elif op == 'above' and val <= threshold:
+                            matches_all = False
+                            break
+                    
+                    if not matches_all:
+                        break
+                
+                if matches_all:
+                    filtered.append(row)
+            
+            return filtered if filtered else data
+        
+        return data
 
     @staticmethod
     def _simple_summary(data: Any, max_length: int) -> str:

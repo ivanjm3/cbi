@@ -131,6 +131,10 @@ class SQLGenerator:
         Uses the aggregate function from routing_metadata if specified,
         otherwise defaults to SUM. Valid aggregates: SUM, AVG, COUNT, MIN, MAX.
 
+        When routing_metadata contains 'group_by_hint' (column names the user
+        mentioned), the query groups by those specific columns instead of all
+        categorical columns. This produces focused results matching user intent.
+
         Args:
             table: The resolved table mapping.
             intent: The structured intent with routing_metadata.
@@ -148,17 +152,88 @@ class SQLGenerator:
         if aggregate_fn not in VALID_AGGREGATES:
             aggregate_fn = DEFAULT_AGGREGATE
 
-        # Build SELECT clause: aggregate(numeric_cols), categorical_cols
+        # Detect aggregate function from query text if not explicitly provided
+        query_text = intent.routing_metadata.get("query_text", "").lower()
+        if aggregate_fn == DEFAULT_AGGREGATE:
+            # Check for explicit aggregate keywords in the query
+            if any(kw in query_text for kw in ["average", "avg", "mean"]):
+                aggregate_fn = "AVG"
+            elif any(kw in query_text for kw in ["minimum", "min", "lowest", "least"]):
+                aggregate_fn = "MIN"
+            elif any(kw in query_text for kw in ["maximum", "max", "highest", "most", "top"]):
+                aggregate_fn = "MAX"
+
+        # Check for group_by_hint — user mentioned specific columns
+        group_by_hint = intent.routing_metadata.get("group_by_hint", [])
+        target_columns = intent.routing_metadata.get("target_columns", [])
+        matched_filter_keywords = intent.routing_metadata.get("matched_keywords", [])
+
+        # Determine which categorical columns to GROUP BY
+        if group_by_hint:
+            # Use only the columns the user mentioned
+            all_col_names = {col.name for col in table.columns}
+            group_cols = [
+                col for col in categorical_cols
+                if col.name in group_by_hint or col.name in target_columns
+            ]
+            # Fallback: if hint doesn't match any categorical columns, check
+            # filter_mappings for keyword→column resolution
+            if not group_cols:
+                filter_map = {fm.keyword: fm.target_column for fm in table.filter_mappings}
+                resolved_col_names = set()
+                for hint in group_by_hint:
+                    if hint in filter_map:
+                        resolved_col_names.add(filter_map[hint])
+                    # Also check if hint matches a column name directly
+                    for col_name in all_col_names:
+                        if hint in col_name or col_name.replace("is_", "") == hint:
+                            resolved_col_names.add(col_name)
+                group_cols = [
+                    col for col in categorical_cols
+                    if col.name in resolved_col_names
+                ]
+            # If still nothing resolved, fall back to all categorical columns
+            if not group_cols:
+                group_cols = categorical_cols
+        else:
+            group_cols = categorical_cols
+
+        # Determine if this is a COUNT query (e.g., "how many employees are remote")
+        query_text = intent.routing_metadata.get("query_text", "").lower()
+        is_count_query = any(
+            kw in query_text for kw in ["how many", "count", "number of", "total number"]
+        )
+
+        # Build SELECT clause
         select_parts: list[str] = []
-        for col in categorical_cols:
+        for col in group_cols:
             select_parts.append(col.name)
-        for col in numeric_cols:
-            select_parts.append(f"{aggregate_fn}({col.name})")
+
+        if is_count_query:
+            # For "how many" queries, use COUNT(*) instead of aggregating all numeric columns
+            select_parts.append("COUNT(*)")
+        else:
+            # Determine which numeric columns to aggregate
+            # If the user mentioned specific metrics, only aggregate those
+            target_numeric_cols = numeric_cols
+            if target_columns or matched_filter_keywords:
+                all_mentioned = set(target_columns + matched_filter_keywords)
+                targeted = [
+                    col for col in numeric_cols
+                    if col.name in all_mentioned
+                    or col.name.replace("_", " ") in all_mentioned
+                    or any(kw in col.name for kw in all_mentioned if len(kw) > 3)
+                ]
+                if targeted:
+                    target_numeric_cols = targeted
+
+            for col in target_numeric_cols:
+                select_parts.append(f"{aggregate_fn}({col.name})")
 
         select_clause = ", ".join(select_parts)
 
-        # GROUP BY all categorical columns
-        group_by_clause = ", ".join(col.name for col in categorical_cols)
+        # GROUP BY the selected categorical columns
+        group_by_clause = ", ".join(col.name for col in group_cols)
 
         # Build WHERE clause from filters
         where_parts, parameters = self._build_where_clause(table, intent)
@@ -178,9 +253,13 @@ class SQLGenerator:
     def _generate_comparison(
         self, table: TableMapping, intent: StructuredIntent
     ) -> GeneratedQuery:
-        """Generate a comparison query grouped by first categorical column.
+        """Generate a comparison query grouped by a relevant categorical column.
 
-        Produces SELECT first_categorical, SUM(numeric_cols) GROUP BY first_categorical.
+        When routing_metadata contains 'group_by_hint', uses the hinted column
+        as the comparison dimension. Otherwise falls back to the first categorical
+        column.
+
+        Produces SELECT comparison_col, COUNT(*) or SUM(numeric_cols) GROUP BY comparison_col.
 
         Args:
             table: The resolved table mapping.
@@ -192,15 +271,47 @@ class SQLGenerator:
         numeric_cols = self._schema_registry.get_numeric_columns(table.table_name)
         categorical_cols = self._schema_registry.get_categorical_columns(table.table_name)
 
-        # Use first categorical column as the comparison dimension
-        first_categorical = categorical_cols[0].name if categorical_cols else None
+        # Determine comparison dimension from group_by_hint or fallback to first categorical
+        group_by_hint = intent.routing_metadata.get("group_by_hint", [])
+        target_columns = intent.routing_metadata.get("target_columns", [])
+
+        first_categorical = None
+        if group_by_hint or target_columns:
+            # Try to find a categorical column matching the hint
+            hints = group_by_hint or target_columns
+            filter_map = {fm.keyword: fm.target_column for fm in table.filter_mappings}
+            for hint in hints:
+                # Direct column name match
+                for col in categorical_cols:
+                    if col.name == hint or col.name.replace("is_", "") == hint:
+                        first_categorical = col.name
+                        break
+                if first_categorical:
+                    break
+                # Filter mapping keyword match
+                if hint in filter_map:
+                    first_categorical = filter_map[hint]
+                    break
+
+        if not first_categorical:
+            first_categorical = categorical_cols[0].name if categorical_cols else None
+
+        # Determine if this is a COUNT query
+        query_text = intent.routing_metadata.get("query_text", "").lower()
+        is_count_query = any(
+            kw in query_text for kw in ["how many", "count", "number of", "total number"]
+        )
 
         # Build SELECT clause
         select_parts: list[str] = []
         if first_categorical:
             select_parts.append(first_categorical)
-        for col in numeric_cols:
-            select_parts.append(f"SUM({col.name})")
+
+        if is_count_query:
+            select_parts.append("COUNT(*)")
+        else:
+            for col in numeric_cols:
+                select_parts.append(f"SUM({col.name})")
 
         select_clause = ", ".join(select_parts)
 

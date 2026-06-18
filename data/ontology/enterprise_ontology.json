@@ -9,7 +9,18 @@
         "aggregatable": true,
         "description": "Revenue generated from product sales, tracked quarterly by region and category",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json"
+        "agent_id": "spoke-agent-json",
+        "table_name": "sales_performance",
+        "columns": {
+          "quarter": {"type": "categorical", "description": "Fiscal quarter (e.g. Q1 2024)"},
+          "region": {"type": "categorical", "description": "Geographic region (North America, Europe)"},
+          "category": {"type": "categorical", "description": "Product category"},
+          "revenue": {"type": "numeric", "unit": "currency", "description": "Total revenue for the period"},
+          "orders": {"type": "numeric", "unit": "count", "description": "Number of orders placed"},
+          "avg_order_value": {"type": "numeric", "unit": "currency", "description": "Average value per order"},
+          "return_rate": {"type": "numeric", "unit": "percentage", "description": "Percentage of orders returned"}
+        },
+        "filter_keywords": ["quarter", "region", "category", "revenue", "orders", "return", "returns", "average order"]
       },
       "relationships": []
     },
@@ -22,7 +33,18 @@
         "aggregatable": true,
         "description": "Number of customer orders placed, tracked quarterly by region and category",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json"
+        "agent_id": "spoke-agent-json",
+        "table_name": "sales_performance",
+        "columns": {
+          "quarter": {"type": "categorical", "description": "Fiscal quarter (e.g. Q1 2024)"},
+          "region": {"type": "categorical", "description": "Geographic region (North America, Europe)"},
+          "category": {"type": "categorical", "description": "Product category"},
+          "orders": {"type": "numeric", "unit": "count", "description": "Number of orders placed"},
+          "revenue": {"type": "numeric", "unit": "currency", "description": "Total revenue"},
+          "avg_order_value": {"type": "numeric", "unit": "currency", "description": "Average order value"},
+          "return_rate": {"type": "numeric", "unit": "percentage", "description": "Return rate"}
+        },
+        "filter_keywords": ["quarter", "region", "category", "orders", "volume", "order count"]
       },
       "relationships": []
     },
@@ -35,7 +57,17 @@
         "aggregatable": true,
         "description": "Percentage of orders returned, tracked quarterly by region and category",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json"
+        "agent_id": "spoke-agent-json",
+        "table_name": "sales_performance",
+        "columns": {
+          "quarter": {"type": "categorical", "description": "Fiscal quarter"},
+          "region": {"type": "categorical", "description": "Geographic region"},
+          "category": {"type": "categorical", "description": "Product category"},
+          "return_rate": {"type": "numeric", "unit": "percentage", "description": "Percentage of orders returned"},
+          "orders": {"type": "numeric", "unit": "count", "description": "Total orders"},
+          "revenue": {"type": "numeric", "unit": "currency", "description": "Total revenue"}
+        },
+        "filter_keywords": ["quarter", "region", "category", "return", "returns", "returned"]
       },
       "relationships": []
     },
@@ -45,9 +77,20 @@
       "properties": {
         "domain": "finance",
         "type": "report",
-        "description": "Aggregated financial performance data by quarter",
+        "description": "Aggregated financial performance data by quarter including revenue, orders, and return rates across regions and categories",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json"
+        "agent_id": "spoke-agent-json",
+        "table_name": "sales_performance",
+        "columns": {
+          "quarter": {"type": "categorical", "description": "Fiscal quarter (e.g. Q1 2024, Q2 2024)"},
+          "region": {"type": "categorical", "description": "Geographic region"},
+          "category": {"type": "categorical", "description": "Product category"},
+          "revenue": {"type": "numeric", "unit": "currency", "description": "Total revenue"},
+          "orders": {"type": "numeric", "unit": "count", "description": "Number of orders"},
+          "avg_order_value": {"type": "numeric", "unit": "currency", "description": "Average order value"},
+          "return_rate": {"type": "numeric", "unit": "percentage", "description": "Return rate"}
+        },
+        "filter_keywords": ["quarter", "quarterly", "q1", "q2", "q3", "q4", "region", "category", "financial", "report"]
       },
       "relationships": []
     },
@@ -57,9 +100,25 @@
       "properties": {
         "domain": "inventory",
         "type": "catalog",
-        "description": "Complete listing of products with pricing, stock levels, and supplier info",
+        "description": "Complete listing of products with pricing, stock levels, supplier info, subcategories, and active status",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv"
+        "agent_id": "spoke-agent-csv",
+        "table_name": "product_catalog",
+        "columns": {
+          "product_id": {"type": "identifier", "description": "Unique product identifier"},
+          "name": {"type": "categorical", "description": "Product name"},
+          "category": {"type": "categorical", "description": "Product category (Electronics, Office Furniture, etc.)"},
+          "subcategory": {"type": "categorical", "description": "Product subcategory"},
+          "unit_price": {"type": "numeric", "unit": "currency", "description": "Selling price per unit"},
+          "stock_quantity": {"type": "numeric", "unit": "count", "description": "Current stock quantity"},
+          "unit_cost": {"type": "numeric", "unit": "currency", "description": "Cost per unit"},
+          "supplier": {"type": "categorical", "description": "Supplier company name"},
+          "supplier_region": {"type": "categorical", "description": "Supplier geographic region"},
+          "last_restocked": {"type": "categorical", "description": "Date of last restocking"},
+          "weight_kg": {"type": "numeric", "unit": "kg", "description": "Product weight in kilograms"},
+          "is_active": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether the product is currently active/available"}
+        },
+        "filter_keywords": ["category", "subcategory", "supplier", "region", "active", "inactive", "price", "stock", "product", "weight"]
       },
       "relationships": []
     },
@@ -72,7 +131,20 @@
         "aggregatable": true,
         "description": "Current stock quantity for products, grouped by category and supplier",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv"
+        "agent_id": "spoke-agent-csv",
+        "table_name": "product_catalog",
+        "columns": {
+          "product_id": {"type": "identifier", "description": "Unique product identifier"},
+          "name": {"type": "categorical", "description": "Product name"},
+          "category": {"type": "categorical", "description": "Product category"},
+          "subcategory": {"type": "categorical", "description": "Product subcategory"},
+          "stock_quantity": {"type": "numeric", "unit": "count", "description": "Current stock on hand"},
+          "supplier": {"type": "categorical", "description": "Supplier name"},
+          "supplier_region": {"type": "categorical", "description": "Supplier region"},
+          "last_restocked": {"type": "categorical", "description": "Date last restocked"},
+          "is_active": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether product is active"}
+        },
+        "filter_keywords": ["stock", "quantity", "inventory", "category", "supplier", "restocked", "out of stock", "available"]
       },
       "relationships": []
     },
@@ -83,9 +155,20 @@
         "domain": "inventory",
         "unit": "currency",
         "aggregatable": true,
-        "description": "Unit price and unit cost for products, enabling margin calculations",
+        "description": "Unit price and unit cost for products, enabling margin and markup calculations",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv"
+        "agent_id": "spoke-agent-csv",
+        "table_name": "product_catalog",
+        "columns": {
+          "product_id": {"type": "identifier", "description": "Unique product identifier"},
+          "name": {"type": "categorical", "description": "Product name"},
+          "category": {"type": "categorical", "description": "Product category"},
+          "unit_price": {"type": "numeric", "unit": "currency", "description": "Selling price per unit"},
+          "unit_cost": {"type": "numeric", "unit": "currency", "description": "Cost per unit"},
+          "supplier": {"type": "categorical", "description": "Supplier name"},
+          "supplier_region": {"type": "categorical", "description": "Supplier region"}
+        },
+        "filter_keywords": ["price", "pricing", "cost", "margin", "markup", "expensive", "cheapest", "category", "supplier"]
       },
       "relationships": []
     },
@@ -95,48 +178,109 @@
       "properties": {
         "domain": "inventory",
         "type": "reference",
-        "description": "Supplier names and regions for products",
+        "description": "Supplier names, regions, and product associations",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv"
+        "agent_id": "spoke-agent-csv",
+        "table_name": "product_catalog",
+        "columns": {
+          "product_id": {"type": "identifier", "description": "Product identifier"},
+          "name": {"type": "categorical", "description": "Product name"},
+          "category": {"type": "categorical", "description": "Product category"},
+          "supplier": {"type": "categorical", "description": "Supplier company name"},
+          "supplier_region": {"type": "categorical", "description": "Geographic region of the supplier (North America, Europe)"},
+          "unit_price": {"type": "numeric", "unit": "currency", "description": "Selling price"},
+          "stock_quantity": {"type": "numeric", "unit": "count", "description": "Stock on hand"}
+        },
+        "filter_keywords": ["supplier", "vendor", "region", "supplier_region", "provider"]
       },
       "relationships": []
     },
     {
-      "concept_id": "ontology:sales_transactions",
-      "label": "Sales Transactions",
-      "properties": {
-        "domain": "finance",
-        "data_source": "redshift",
-        "agent_id": "redshift-spoke-agent",
-        "description": "Individual sales transactions with quantity, pricing, and regional breakdown from Redshift",
-        "numeric_properties": ["quantity", "total_amount"],
-        "aggregatable": true
-      },
-      "relationships": []
-    },
-    {
-      "concept_id": "ontology:customer_segments",
-      "label": "Customer Segments",
-      "properties": {
-        "domain": "customers",
-        "data_source": "redshift",
-        "agent_id": "redshift-spoke-agent",
-        "description": "Customer segmentation with lifetime value and order metrics from Redshift",
-        "numeric_properties": ["lifetime_value", "total_orders"],
-        "aggregatable": true
-      },
-      "relationships": []
-    },
-    {
-      "concept_id": "ontology:employee_performance",
-      "label": "Employee Performance",
+      "concept_id": "ontology:workforce_metrics",
+      "label": "Workforce Metrics",
       "properties": {
         "domain": "hr",
         "data_source": "redshift",
         "agent_id": "redshift-spoke-agent",
-        "description": "Employee performance metrics by department including targets, actuals, deals, and satisfaction scores from Redshift",
-        "numeric_properties": ["quarterly_target", "quarterly_actual", "deals_closed", "customer_satisfaction_score"],
-        "aggregatable": true
+        "description": "Employee workforce data including department, job level, salary, bonus, utilization, training, certifications, engagement scores, office location, and remote/in-office work status",
+        "table_name": "workforce_metrics",
+        "row_count": 120,
+        "aggregatable": true,
+        "columns": {
+          "employee_id": {"type": "identifier", "sql_type": "VARCHAR", "description": "Unique employee identifier"},
+          "employee_name": {"type": "categorical", "sql_type": "VARCHAR", "description": "Full name of the employee"},
+          "department": {"type": "categorical", "sql_type": "VARCHAR", "description": "Department (Engineering, Product, Design, Data Science, DevOps, QA, Security)"},
+          "job_level": {"type": "categorical", "sql_type": "VARCHAR", "description": "Job level (Junior, Mid, Senior, Staff, Principal, Lead, Director)"},
+          "hire_date": {"type": "categorical", "sql_type": "DATE", "description": "Date the employee was hired"},
+          "office_location": {"type": "categorical", "sql_type": "VARCHAR", "description": "Office location (San Francisco, New York, London, Berlin, Toronto, Sydney)"},
+          "base_salary": {"type": "numeric", "sql_type": "DECIMAL", "unit": "currency", "description": "Annual base salary"},
+          "bonus_pct": {"type": "numeric", "sql_type": "DECIMAL", "unit": "percentage", "description": "Bonus percentage"},
+          "utilization_rate": {"type": "numeric", "sql_type": "DECIMAL", "unit": "percentage", "description": "Utilization rate"},
+          "training_hours": {"type": "numeric", "sql_type": "INTEGER", "unit": "hours", "description": "Training hours completed"},
+          "certifications": {"type": "numeric", "sql_type": "INTEGER", "unit": "count", "description": "Number of certifications held"},
+          "engagement_score": {"type": "numeric", "sql_type": "DECIMAL", "unit": "score", "description": "Employee engagement score (2.5-5.0)"},
+          "is_remote": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether the employee works remotely (true) or in-office (false)"}
+        },
+        "filter_keywords": ["department", "job_level", "level", "office_location", "location", "remote", "in-office", "onsite", "on-site", "salary", "bonus", "utilization", "training", "certifications", "engagement", "hire_date", "hired", "employee", "employees", "workforce", "staff", "headcount"]
+      },
+      "relationships": []
+    },
+    {
+      "concept_id": "ontology:support_tickets",
+      "label": "Support Tickets",
+      "properties": {
+        "domain": "customer_support",
+        "data_source": "redshift",
+        "agent_id": "redshift-spoke-agent",
+        "description": "Customer support ticket data with resolution times, satisfaction ratings, escalation status, and first-contact resolution by customer tier, channel, priority, issue category, and assigned team",
+        "table_name": "support_tickets",
+        "row_count": 200,
+        "aggregatable": true,
+        "columns": {
+          "ticket_id": {"type": "identifier", "sql_type": "VARCHAR", "description": "Unique ticket identifier"},
+          "created_date": {"type": "categorical", "sql_type": "DATE", "description": "Date the ticket was created"},
+          "resolved_date": {"type": "categorical", "sql_type": "DATE", "description": "Date the ticket was resolved (NULL if unresolved)"},
+          "customer_tier": {"type": "categorical", "sql_type": "VARCHAR", "description": "Customer tier (Free, Starter, Professional, Enterprise, Strategic)"},
+          "channel": {"type": "categorical", "sql_type": "VARCHAR", "description": "Support channel (Email, Chat, Phone, Self-Service Portal, Social Media)"},
+          "priority": {"type": "categorical", "sql_type": "VARCHAR", "description": "Ticket priority (Low, Medium, High, Critical)"},
+          "issue_category": {"type": "categorical", "sql_type": "VARCHAR", "description": "Issue category (Login/Authentication, Billing Dispute, Feature Request, Performance Issue, Data Export, Integration Error, Account Management, API Failure, Onboarding Help, Downtime Report)"},
+          "assigned_team": {"type": "categorical", "sql_type": "VARCHAR", "description": "Assigned support team (Tier 1, Tier 2, Tier 3 Engineering, Billing Team, Account Management)"},
+          "resolution_hours": {"type": "numeric", "sql_type": "DECIMAL", "unit": "hours", "description": "Hours to resolve the ticket"},
+          "satisfaction_rating": {"type": "numeric", "sql_type": "INTEGER", "unit": "score", "description": "Customer satisfaction rating (1-5)"},
+          "escalated": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether the ticket was escalated (true/false)"},
+          "first_contact_resolution": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether resolved on first contact (true/false)"}
+        },
+        "filter_keywords": ["customer_tier", "tier", "channel", "priority", "issue_category", "category", "issue", "assigned_team", "team", "escalated", "escalation", "first_contact", "first contact resolution", "fcr", "resolution", "resolved", "unresolved", "satisfaction", "rating", "ticket", "tickets", "support"]
+      },
+      "relationships": []
+    },
+    {
+      "concept_id": "ontology:marketing_campaigns",
+      "label": "Marketing Campaigns",
+      "properties": {
+        "domain": "marketing",
+        "data_source": "redshift",
+        "agent_id": "redshift-spoke-agent",
+        "description": "Marketing campaign performance data with budget, spend, impressions, clicks, conversions, and attributed revenue by channel, target audience, and campaign status",
+        "table_name": "marketing_campaigns",
+        "row_count": 80,
+        "aggregatable": true,
+        "columns": {
+          "campaign_id": {"type": "identifier", "sql_type": "VARCHAR", "description": "Unique campaign identifier"},
+          "campaign_name": {"type": "categorical", "sql_type": "VARCHAR", "description": "Campaign name/title"},
+          "launch_date": {"type": "categorical", "sql_type": "DATE", "description": "Campaign launch date"},
+          "end_date": {"type": "categorical", "sql_type": "DATE", "description": "Campaign end date"},
+          "channel": {"type": "categorical", "sql_type": "VARCHAR", "description": "Marketing channel (Paid Search, Social Media, Email Newsletter, Content Marketing, Webinar, Partner Referral)"},
+          "target_audience": {"type": "categorical", "sql_type": "VARCHAR", "description": "Target audience segment (Developers, CTOs/VPs, Small Business Owners, Enterprise Buyers, Startup Founders, Data Teams)"},
+          "budget": {"type": "numeric", "sql_type": "DECIMAL", "unit": "currency", "description": "Campaign budget allocated"},
+          "spend": {"type": "numeric", "sql_type": "DECIMAL", "unit": "currency", "description": "Actual campaign spend"},
+          "impressions": {"type": "numeric", "sql_type": "INTEGER", "unit": "count", "description": "Number of ad impressions"},
+          "clicks": {"type": "numeric", "sql_type": "INTEGER", "unit": "count", "description": "Number of clicks"},
+          "conversions": {"type": "numeric", "sql_type": "INTEGER", "unit": "count", "description": "Number of conversions"},
+          "revenue_attributed": {"type": "numeric", "sql_type": "DECIMAL", "unit": "currency", "description": "Revenue attributed to this campaign"},
+          "status": {"type": "categorical", "sql_type": "VARCHAR", "description": "Campaign status (Active, Completed, Paused)"}
+        },
+        "filter_keywords": ["channel", "target_audience", "audience", "status", "active", "completed", "paused", "budget", "spend", "spending", "impressions", "clicks", "ctr", "conversions", "conversion rate", "revenue", "roi", "campaign", "campaigns", "marketing"]
       },
       "relationships": []
     },
@@ -147,7 +291,7 @@
         "domain": "shared",
         "type": "dimension",
         "values": ["Electronics", "Office Furniture", "Office Supplies", "Software", "Networking"],
-        "description": "Product categorization shared across sales and inventory data"
+        "description": "Product categorization used in sales and inventory data (S3 sources)"
       },
       "relationships": []
     },
@@ -157,8 +301,52 @@
       "properties": {
         "domain": "shared",
         "type": "dimension",
-        "values": ["North America", "Europe", "Asia Pacific", "Latin America"],
-        "description": "Geographic region shared across sales (region) and inventory (supplier_region)"
+        "values": ["North America", "Europe"],
+        "description": "Geographic region used in S3 sales financial data and product catalog"
+      },
+      "relationships": []
+    },
+    {
+      "concept_id": "ontology:office_location",
+      "label": "Office Location",
+      "properties": {
+        "domain": "shared",
+        "type": "dimension",
+        "values": ["San Francisco", "New York", "London", "Berlin", "Toronto", "Sydney"],
+        "description": "Office locations used in workforce metrics (Redshift)"
+      },
+      "relationships": []
+    },
+    {
+      "concept_id": "ontology:department",
+      "label": "Department",
+      "properties": {
+        "domain": "shared",
+        "type": "dimension",
+        "values": ["Engineering", "Product", "Design", "Data Science", "DevOps", "QA", "Security"],
+        "description": "Company departments used in workforce metrics (Redshift)"
+      },
+      "relationships": []
+    },
+    {
+      "concept_id": "ontology:customer_tier",
+      "label": "Customer Tier",
+      "properties": {
+        "domain": "shared",
+        "type": "dimension",
+        "values": ["Free", "Starter", "Professional", "Enterprise", "Strategic"],
+        "description": "Customer tier segmentation used in support tickets (Redshift)"
+      },
+      "relationships": []
+    },
+    {
+      "concept_id": "ontology:marketing_channel",
+      "label": "Marketing Channel",
+      "properties": {
+        "domain": "shared",
+        "type": "dimension",
+        "values": ["Paid Search", "Social Media", "Email Newsletter", "Content Marketing", "Webinar", "Partner Referral"],
+        "description": "Marketing channels used in campaign data (Redshift)"
       },
       "relationships": []
     }
@@ -225,35 +413,35 @@
       "properties": {"join_key": "supplier_region"}
     },
     {
-      "source_id": "ontology:sales_transactions",
-      "target_id": "ontology:region",
+      "source_id": "ontology:workforce_metrics",
+      "target_id": "ontology:office_location",
       "relation_type": "grouped_by",
-      "properties": {"join_key": "region"}
+      "properties": {"join_key": "office_location"}
     },
     {
-      "source_id": "ontology:sales_transactions",
-      "target_id": "ontology:product_category",
+      "source_id": "ontology:workforce_metrics",
+      "target_id": "ontology:department",
       "relation_type": "grouped_by",
-      "properties": {"join_key": "category"}
+      "properties": {"join_key": "department"}
     },
     {
-      "source_id": "ontology:customer_segments",
-      "target_id": "ontology:region",
+      "source_id": "ontology:support_tickets",
+      "target_id": "ontology:customer_tier",
       "relation_type": "grouped_by",
-      "properties": {"join_key": "region"}
+      "properties": {"join_key": "customer_tier"}
     },
     {
-      "source_id": "ontology:employee_performance",
-      "target_id": "ontology:region",
+      "source_id": "ontology:marketing_campaigns",
+      "target_id": "ontology:marketing_channel",
       "relation_type": "grouped_by",
-      "properties": {"join_key": "region"}
+      "properties": {"join_key": "channel"}
     }
   ],
   "metadata": {
     "name": "enterprise_ontology",
-    "version": "1.0",
+    "version": "3.0",
     "created_at": "2025-01-01T00:00:00Z",
-    "updated_at": "2025-01-15T10:00:00Z",
-    "description": "Enterprise ontology covering sales financials and product inventory with shared category and region dimensions"
+    "updated_at": "2025-06-18T10:00:00Z",
+    "description": "Enterprise ontology covering S3-based sales financials and product inventory, plus Redshift-based workforce, customer support, and marketing campaign data. Each concept includes full column-level metadata with types, descriptions, and filter keywords for accurate NLP resolution."
   }
 }

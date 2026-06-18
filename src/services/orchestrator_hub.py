@@ -469,15 +469,6 @@ class OrchestratorHub:
 
         # Invoke the Strands Agent — tool calls populate _dispatch_results
         result = self._agent(prompt)
-        
-        # Track cost
-        from src.services.bedrock_wrapper import track_agent_invocation
-        track_agent_invocation(
-            component="orchestrator_hub",
-            model_id=self._model_id,
-            response=result,
-            correlation_id=self._current_correlation_id,
-        )
 
         # Build response from accumulated dispatch results
         return self._build_response_from_results(intent, resolved_agents, cache_key)

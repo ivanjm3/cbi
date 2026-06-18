@@ -336,19 +336,6 @@ Keep your response concise but informative. Use bullet points for clarity where 
 
         response_body = json.loads(response["body"].read())
 
-        # Track cost
-        try:
-            from src.services.cost_tracker import get_cost_tracker
-            usage = response_body.get("usage", {})
-            get_cost_tracker().log_invocation(
-                model_id=DEFAULT_MODEL_ID,
-                component="follow_up_query",
-                input_tokens=usage.get("input_tokens", 0),
-                output_tokens=usage.get("output_tokens", 0),
-            )
-        except Exception:
-            pass
-
         content = response_body.get("content", [])
         explanation_text = ""
         if content and len(content) > 0:
@@ -426,18 +413,6 @@ async def serve_frontend() -> FileResponse:
     )
 
 
-@app.get("/cost-report")
-async def cost_report_endpoint():
-    """Return today's cost report as JSON."""
-    from src.services.cost_tracker import get_cost_tracker
-    try:
-        tracker = get_cost_tracker()
-        summary = tracker.get_daily_summary()
-        return JSONResponse(status_code=200, content=summary)
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
 import uuid
 
 # Cache for input guardrail results to avoid repeated Bedrock calls
@@ -475,17 +450,6 @@ def _check_input_guardrails_bedrock(query_text: str) -> dict | None:
             source="INPUT",
             content=[{"text": {"text": query_text}}],
         )
-
-        # Track input guardrail cost
-        try:
-            from src.services.cost_tracker import get_cost_tracker
-            get_cost_tracker().log_guardrail_invocation(
-                component="nlp_api_input_guardrail",
-                text_length_chars=len(query_text),
-                action=result.get("action", "NONE"),
-            )
-        except Exception:
-            pass  # Don't let cost tracking break guardrails
 
         if result.get("action") == "GUARDRAIL_INTERVENED":
             outputs = result.get("outputs", [])
@@ -781,6 +745,7 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
 
     # Step 3.5: Text-Only Detection (Requirement #6 - Option A)
     # Check if query should return text-only response instead of visualization
+    ask_for_visualization = False
     try:
         from src.services.text_only_detector import TextOnlyDetector
         
@@ -817,6 +782,7 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
                     "query_type": "text_only",
                     "entity_refs": intent.entity_refs or [],
                     "latency_ms": int((time.monotonic() - total_start) * 1000),
+                    "ask_for_visualization": True,  # Flag for frontend to ask user
                 },
             )
             

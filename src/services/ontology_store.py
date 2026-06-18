@@ -219,7 +219,7 @@ class OntologyStore:
         concept_id_lower = concept.concept_id.lower().replace("ontology:", "").replace("_", " ")
         description = concept.properties.get("description", "").lower()
 
-        # Priority 0: exact concept_id match (e.g. "sales_transactions" matches ontology:sales_transactions)
+        # Priority 0: exact concept_id match (e.g. "workforce_metrics" matches ontology:workforce_metrics)
         if keyword.replace(" ", "_") == concept_id_lower.replace(" ", "_"):
             return 0
 

@@ -160,16 +160,7 @@ class GuardrailLayer:
                 content=[{"text": {"text": content_text}}],
             )
 
-            # Track guardrail cost
-            try:
-                from src.services.cost_tracker import get_cost_tracker
-                get_cost_tracker().log_guardrail_invocation(
-                    component="guardrail_layer",
-                    text_length_chars=len(content_text),
-                    action=result.get("action", "NONE"),
-                )
-            except Exception:
-                pass  # Don't let cost tracking break guardrails
+
 
             action = result.get("action", "NONE")
 

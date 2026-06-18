@@ -40,7 +40,6 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "visualization-poc-bucket")
 # S3 Key Prefixes
 S3_ONTOLOGY_PREFIX = "ontology/"
 S3_HISTORY_PREFIX = "history/"
-S3_COSTS_PREFIX = "costs/"
 S3_GUARDRAIL_RULES_KEY = "config/guardrail_rules.json"
 S3_DATA_SOURCES_PREFIX = "data-sources/"
 

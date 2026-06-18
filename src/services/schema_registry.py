@@ -17,64 +17,84 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_MAPPINGS: list[TableMapping] = [
     TableMapping(
-        concept_id="ontology:sales_transactions",
-        table_name="sales_transactions",
-        columns=[
-            ColumnDef(name="transaction_id", classification=ColumnClassification.IDENTIFIER, sql_type="VARCHAR"),
-            ColumnDef(name="transaction_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
-            ColumnDef(name="customer_id", classification=ColumnClassification.IDENTIFIER, sql_type="VARCHAR"),
-            ColumnDef(name="product_name", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="category", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="region", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="quantity", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
-            ColumnDef(name="unit_price", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
-            ColumnDef(name="total_amount", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
-            ColumnDef(name="payment_method", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-        ],
-        filter_mappings=[
-            FilterMapping(keyword="category", target_column="category", operator="equals"),
-            FilterMapping(keyword="region", target_column="region", operator="equals"),
-            FilterMapping(keyword="payment_method", target_column="payment_method", operator="equals"),
-            FilterMapping(keyword="product_name", target_column="product_name", operator="like"),
-        ],
-    ),
-    TableMapping(
-        concept_id="ontology:customer_segments",
-        table_name="customer_segments",
-        columns=[
-            ColumnDef(name="customer_id", classification=ColumnClassification.IDENTIFIER, sql_type="VARCHAR"),
-            ColumnDef(name="customer_name", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="segment", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="lifetime_value", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
-            ColumnDef(name="signup_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
-            ColumnDef(name="region", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="total_orders", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
-            ColumnDef(name="last_order_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
-        ],
-        filter_mappings=[
-            FilterMapping(keyword="segment", target_column="segment", operator="equals"),
-            FilterMapping(keyword="region", target_column="region", operator="equals"),
-        ],
-    ),
-    TableMapping(
-        concept_id="ontology:employee_performance",
-        table_name="employee_performance",
+        concept_id="ontology:workforce_metrics",
+        table_name="workforce_metrics",
         columns=[
             ColumnDef(name="employee_id", classification=ColumnClassification.IDENTIFIER, sql_type="VARCHAR"),
             ColumnDef(name="employee_name", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
             ColumnDef(name="department", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="role", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="job_level", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
             ColumnDef(name="hire_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
-            ColumnDef(name="region", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
-            ColumnDef(name="quarterly_target", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
-            ColumnDef(name="quarterly_actual", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
-            ColumnDef(name="deals_closed", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
-            ColumnDef(name="customer_satisfaction_score", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="office_location", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="base_salary", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="bonus_pct", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="utilization_rate", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="training_hours", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
+            ColumnDef(name="certifications", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
+            ColumnDef(name="engagement_score", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="is_remote", classification=ColumnClassification.CATEGORICAL, sql_type="BOOLEAN"),
         ],
         filter_mappings=[
             FilterMapping(keyword="department", target_column="department", operator="equals"),
-            FilterMapping(keyword="region", target_column="region", operator="equals"),
-            FilterMapping(keyword="role", target_column="role", operator="equals"),
+            FilterMapping(keyword="job_level", target_column="job_level", operator="equals"),
+            FilterMapping(keyword="office_location", target_column="office_location", operator="equals"),
+            FilterMapping(keyword="remote", target_column="is_remote", operator="equals"),
+            FilterMapping(keyword="in-office", target_column="is_remote", operator="equals"),
+        ],
+    ),
+    TableMapping(
+        concept_id="ontology:support_tickets",
+        table_name="support_tickets",
+        columns=[
+            ColumnDef(name="ticket_id", classification=ColumnClassification.IDENTIFIER, sql_type="VARCHAR"),
+            ColumnDef(name="created_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
+            ColumnDef(name="resolved_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
+            ColumnDef(name="customer_tier", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="channel", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="priority", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="issue_category", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="assigned_team", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="resolution_hours", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="satisfaction_rating", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
+            ColumnDef(name="escalated", classification=ColumnClassification.CATEGORICAL, sql_type="BOOLEAN"),
+            ColumnDef(name="first_contact_resolution", classification=ColumnClassification.CATEGORICAL, sql_type="BOOLEAN"),
+        ],
+        filter_mappings=[
+            FilterMapping(keyword="customer_tier", target_column="customer_tier", operator="equals"),
+            FilterMapping(keyword="tier", target_column="customer_tier", operator="equals"),
+            FilterMapping(keyword="channel", target_column="channel", operator="equals"),
+            FilterMapping(keyword="priority", target_column="priority", operator="equals"),
+            FilterMapping(keyword="issue_category", target_column="issue_category", operator="equals"),
+            FilterMapping(keyword="category", target_column="issue_category", operator="equals"),
+            FilterMapping(keyword="assigned_team", target_column="assigned_team", operator="equals"),
+            FilterMapping(keyword="team", target_column="assigned_team", operator="equals"),
+            FilterMapping(keyword="escalated", target_column="escalated", operator="equals"),
+            FilterMapping(keyword="first_contact_resolution", target_column="first_contact_resolution", operator="equals"),
+        ],
+    ),
+    TableMapping(
+        concept_id="ontology:marketing_campaigns",
+        table_name="marketing_campaigns",
+        columns=[
+            ColumnDef(name="campaign_id", classification=ColumnClassification.IDENTIFIER, sql_type="VARCHAR"),
+            ColumnDef(name="campaign_name", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="launch_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
+            ColumnDef(name="end_date", classification=ColumnClassification.CATEGORICAL, sql_type="DATE"),
+            ColumnDef(name="channel", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="target_audience", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+            ColumnDef(name="budget", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="spend", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="impressions", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
+            ColumnDef(name="clicks", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
+            ColumnDef(name="conversions", classification=ColumnClassification.NUMERIC, sql_type="INTEGER"),
+            ColumnDef(name="revenue_attributed", classification=ColumnClassification.NUMERIC, sql_type="DECIMAL"),
+            ColumnDef(name="status", classification=ColumnClassification.CATEGORICAL, sql_type="VARCHAR"),
+        ],
+        filter_mappings=[
+            FilterMapping(keyword="channel", target_column="channel", operator="equals"),
+            FilterMapping(keyword="target_audience", target_column="target_audience", operator="equals"),
+            FilterMapping(keyword="audience", target_column="target_audience", operator="equals"),
+            FilterMapping(keyword="status", target_column="status", operator="equals"),
         ],
     ),
 ]
@@ -101,7 +121,7 @@ class SchemaRegistry:
         """Resolve an entity_ref to its corresponding TableMapping.
 
         Args:
-            entity_ref: The ontology concept_id (e.g. "ontology:sales_transactions").
+            entity_ref: The ontology concept_id (e.g. "ontology:workforce_metrics").
 
         Returns:
             The matching TableMapping, or None if not found.

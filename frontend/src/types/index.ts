@@ -183,6 +183,7 @@ export interface SessionState {
   traceabilityPanelVisible: boolean;
   statsPanelCollapsed: boolean;
   loading: boolean;
+  strandLoading: Record<string, boolean>;
 
   // Storage error (user-facing message for quota exceeded, etc.)
   storageError: string | null;

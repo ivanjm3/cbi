@@ -676,17 +676,6 @@ class VisualizationRenderer:
 
                 agent_result = self._agent(prompt)
 
-                # Cost tracking
-                try:
-                    from src.services.bedrock_wrapper import track_agent_invocation
-                    track_agent_invocation(
-                        component="visualization_renderer",
-                        model_id=self._model_id,
-                        response=agent_result,
-                    )
-                except Exception as e:
-                    logger.warning(f"Visualization cost tracking failed: {e}")
-
                 agent_text = str(agent_result)
                 chart_spec = self._extract_emit_chart_from_result(agent_result, agent_text)
 

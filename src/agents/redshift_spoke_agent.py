@@ -250,14 +250,19 @@ def _format_tabular(result: RedshiftResult) -> dict[str, Any]:
 def _format_aggregation(result: RedshiftResult) -> dict[str, Any]:
     """Format result as aggregation data.
 
-    Transforms row-based results into an aggregations dictionary
-    keyed by numeric column names with their aggregate values.
+    For grouped aggregations (GROUP BY queries that produce multiple rows
+    with a categorical dimension), returns tabular format to preserve the
+    per-group breakdown. This allows the visualization renderer to chart
+    each group correctly.
+
+    For scalar aggregations (single-row results like SELECT SUM(...)),
+    returns the summary aggregation dict.
 
     Args:
         result: The Redshift execution result.
 
     Returns:
-        Payload with data_type "aggregation" and aggregations dict.
+        Payload with appropriate data_type based on result shape.
     """
     if not result.rows:
         return {
@@ -268,11 +273,32 @@ def _format_aggregation(result: RedshiftResult) -> dict[str, Any]:
 
     columns = [col["name"] for col in result.columns]
 
-    # For aggregation queries, group rows by categorical columns and
-    # present numeric aggregate values
+    # Detect if this is a grouped aggregation (multiple rows with a
+    # categorical first column) vs a scalar aggregation (single row).
+    # Grouped aggregations should preserve row-level data for charting.
+    has_multiple_rows = len(result.rows) > 1
+    has_categorical_dimension = False
+
+    if has_multiple_rows and result.rows:
+        # Check if the first column contains non-numeric values (GROUP BY dim)
+        first_col_values = [row[0] for row in result.rows if row]
+        has_categorical_dimension = any(
+            isinstance(v, str) or isinstance(v, bool)
+            for v in first_col_values
+        )
+
+    if has_multiple_rows and has_categorical_dimension:
+        # Grouped aggregation → return as tabular to preserve per-group rows
+        return {
+            "data_type": "tabular",
+            "columns": columns,
+            "rows": result.rows,
+            "row_count": result.row_count,
+        }
+
+    # Scalar aggregation (single row or all-numeric columns) → summary dict
     aggregations: dict[str, Any] = {}
     for col_idx, col_name in enumerate(columns):
-        # Collect all values for this column across rows
         values = [row[col_idx] for row in result.rows if col_idx < len(row)]
         numeric_values = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
 

@@ -192,6 +192,7 @@ export const useSessionStore = create<SessionState>()(
       traceabilityPanelVisible: false,
       statsPanelCollapsed: false,
       loading: false,
+      strandLoading: {},
       storageError: null,
 
       // ----- Transient state for query cancellation (not persisted) -----
@@ -615,8 +616,10 @@ export const useSessionStore = create<SessionState>()(
       deleteStrand: (strandId: string) => {
         const state = get();
         const { [strandId]: _, ...remainingStrands } = state.strands;
+        const { [strandId]: __, ...remainingLoading } = state.strandLoading;
         set({
           strands: remainingStrands,
+          strandLoading: remainingLoading,
           activeStrandId: state.activeStrandId === strandId ? null : state.activeStrandId,
         });
       },
@@ -724,7 +727,7 @@ export const useSessionStore = create<SessionState>()(
         };
 
         set({
-          loading: true,
+          strandLoading: { ...state.strandLoading, [strandId]: true },
           strands: { ...state.strands, [strandId]: updatedStrand },
         });
 
@@ -819,7 +822,7 @@ export const useSessionStore = create<SessionState>()(
                       updatedAt: Date.now(),
                     },
                   },
-                  loading: false,
+                  strandLoading: { ...get().strandLoading, [strandId]: false },
                   _activeAbortController: null,
                 });
               }
@@ -872,7 +875,7 @@ Answer the follow-up question. Use the conversation context to understand what "
                     updatedAt: Date.now(),
                   },
                 },
-                loading: false,
+                strandLoading: { ...get().strandLoading, [strandId]: false },
               });
             }
           } else {
@@ -896,7 +899,7 @@ Answer the follow-up question. Use the conversation context to understand what "
                     updatedAt: Date.now(),
                   },
                 },
-                loading: false,
+                strandLoading: { ...get().strandLoading, [strandId]: false },
               });
             }
           }
@@ -920,7 +923,7 @@ Answer the follow-up question. Use the conversation context to understand what "
                   updatedAt: Date.now(),
                 },
               },
-              loading: false,
+              strandLoading: { ...get().strandLoading, [strandId]: false },
             });
           }
         }

@@ -64,8 +64,6 @@ class BedrockClassifier:
         Returns:
             One of "lookup", "aggregation", "comparison". Never returns None.
         """
-        from src.services.cost_tracker import get_cost_tracker
-        
         # PRIMARY: LLM classification
         prompt = self._build_classification_prompt(query_text, ontology_context)
         try:
@@ -87,17 +85,6 @@ class BedrockClassifier:
                 accept="application/json",
             )
             response_body = json.loads(response["body"].read())
-            
-            # Track cost
-            usage = response_body.get("usage", {})
-            input_tokens = usage.get("input_tokens", 0)
-            output_tokens = usage.get("output_tokens", 0)
-            get_cost_tracker().log_invocation(
-                model_id=self.model_id,
-                component="nlp_translator",
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
             
             content = response_body.get("content", [])
             if content and len(content) > 0:
@@ -326,6 +313,7 @@ class NLPTranslator:
                 **routing_metadata,
                 "query_text": query_text,
                 **self._extract_viz_hints(query_text),
+                **self._extract_column_hints(query_text, entity_refs),
             },
             timestamp=datetime.now(timezone.utc),
         )
@@ -363,6 +351,96 @@ class NLPTranslator:
                 return {"requested_chart_type": chart_type}
 
         return {}
+
+    def _extract_column_hints(self, query_text: str, entity_refs: list[str]) -> dict:
+        """Extract column-level hints from the query by matching against ontology metadata.
+
+        When the user's query mentions keywords that map to specific columns
+        (e.g., "remote" → is_remote, "department" → department), this extracts
+        those as hints so the SQL generator can produce targeted queries instead
+        of generic aggregations over all columns.
+
+        Uses three sources of column information from the ontology:
+        1. filter_keywords — user-facing keywords mapped to columns
+        2. columns — full column definitions with descriptions
+        3. categorical_properties — legacy list of categorical column names
+
+        Args:
+            query_text: The original user query text.
+            entity_refs: Resolved entity reference IDs.
+
+        Returns:
+            Dict with 'target_columns' list and 'group_by_hint' if relevant
+            column keywords are detected.
+        """
+        text_lower = query_text.lower()
+        hints: dict = {}
+        matched_columns: list[str] = []
+        matched_filter_keywords: list[str] = []
+
+        for concept_id in entity_refs:
+            concept = self.ontology_store.lookup_concept(concept_id)
+            if not concept:
+                continue
+
+            # Source 1: Check filter_keywords from ontology concept properties
+            filter_keywords = concept.properties.get("filter_keywords", [])
+            for kw in filter_keywords:
+                kw_lower = kw.lower()
+                if kw_lower in text_lower:
+                    matched_filter_keywords.append(kw_lower)
+
+            # Source 2: Check column definitions (the primary metadata source)
+            columns_def = concept.properties.get("columns", {})
+            if isinstance(columns_def, dict):
+                for col_name, col_meta in columns_def.items():
+                    if not isinstance(col_meta, dict):
+                        continue
+                    col_type = col_meta.get("type", "")
+                    # Skip identifiers — they're never useful for grouping
+                    if col_type == "identifier":
+                        continue
+
+                    # Match column name variants against query text
+                    col_lower = col_name.lower()
+                    # Generate user-facing variants: is_remote → "remote", "is remote"
+                    variants = [col_lower, col_lower.replace("_", " ")]
+                    if col_lower.startswith("is_"):
+                        variants.append(col_lower[3:])  # "remote" from "is_remote"
+
+                    # Also check the column description for keyword matches
+                    col_desc = col_meta.get("description", "").lower()
+
+                    for variant in variants:
+                        if variant and len(variant) > 2 and variant in text_lower:
+                            if col_name not in matched_columns:
+                                matched_columns.append(col_name)
+                            break
+
+            # Source 3: Legacy categorical_properties list
+            categorical_properties = concept.properties.get("categorical_properties", [])
+            for col in categorical_properties:
+                col_lower = col.lower().replace("_", " ")
+                col_name_raw = col.lower()
+                variants = [col_lower, col_name_raw]
+                if col_name_raw.startswith("is_"):
+                    variants.append(col_name_raw[3:])
+                for variant in variants:
+                    if variant and variant in text_lower:
+                        if col not in matched_columns:
+                            matched_columns.append(col)
+                        break
+
+        if matched_columns:
+            hints["target_columns"] = matched_columns
+            # If we found categorical columns mentioned in the query,
+            # suggest grouping by them for aggregation queries
+            hints["group_by_hint"] = matched_columns
+
+        if matched_filter_keywords:
+            hints["matched_keywords"] = matched_filter_keywords
+
+        return hints
 
     def _get_history_bias(self, query_text: str) -> dict:
         """Check the Query History Store for similar past intents.
@@ -725,7 +803,11 @@ class NLPTranslator:
             "transactions", "transaction", "segments", "segment", "customer",
             "customers", "employee", "employees", "performance", "department",
             "departments", "satisfaction", "deals", "targets", "lifetime",
-            "shipments", "payment",
+            "shipments", "payment", "remote", "in-office", "escalation",
+            "escalated", "resolution", "tickets", "ticket", "campaign",
+            "campaigns", "marketing", "workforce", "salary", "salaries",
+            "utilization", "engagement", "training", "certifications",
+            "budget", "spend", "impressions", "clicks", "conversions",
         }
 
         for keyword in keywords:

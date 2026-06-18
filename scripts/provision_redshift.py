@@ -3,8 +3,11 @@
 
 Connects to the Redshift cluster "talktodata" using the RedshiftConnector,
 creates the "analytics" database (if not exists), creates tables
-(sales_transactions, customer_segments, employee_performance), and populates
+(workforce_metrics, support_tickets, marketing_campaigns), and populates
 each with 50-200 rows of realistic business data.
+
+These tables cover HR/Workforce, Customer Support, and Marketing domains —
+complementary to but distinct from the S3-based sales/inventory data.
 
 Idempotent: skips creation if database/tables already exist.
 Fails gracefully on connection errors without leaving partial resources.
@@ -33,76 +36,98 @@ FORCE_RECREATE = "--force" in sys.argv or "--recreate" in sys.argv
 
 # --- Table DDL ---
 
-SALES_TRANSACTIONS_DDL = """
-CREATE TABLE IF NOT EXISTS sales_transactions (
-    transaction_id VARCHAR(36) NOT NULL,
-    transaction_date DATE NOT NULL,
-    customer_id VARCHAR(36) NOT NULL,
-    product_name VARCHAR(200) NOT NULL,
-    category VARCHAR(50) NOT NULL,
-    region VARCHAR(50) NOT NULL,
-    quantity INTEGER NOT NULL,
-    unit_price DECIMAL(10,2) NOT NULL,
-    total_amount DECIMAL(12,2) NOT NULL,
-    payment_method VARCHAR(30) NOT NULL
-)
-"""
-
-CUSTOMER_SEGMENTS_DDL = """
-CREATE TABLE IF NOT EXISTS customer_segments (
-    customer_id VARCHAR(36) NOT NULL,
-    customer_name VARCHAR(100) NOT NULL,
-    segment VARCHAR(30) NOT NULL,
-    lifetime_value DECIMAL(12,2) NOT NULL,
-    signup_date DATE NOT NULL,
-    region VARCHAR(50) NOT NULL,
-    total_orders INTEGER NOT NULL,
-    last_order_date DATE NOT NULL
-)
-"""
-
-EMPLOYEE_PERFORMANCE_DDL = """
-CREATE TABLE IF NOT EXISTS employee_performance (
+WORKFORCE_METRICS_DDL = """
+CREATE TABLE IF NOT EXISTS workforce_metrics (
     employee_id VARCHAR(36) NOT NULL,
     employee_name VARCHAR(100) NOT NULL,
     department VARCHAR(50) NOT NULL,
-    role VARCHAR(50) NOT NULL,
+    job_level VARCHAR(30) NOT NULL,
     hire_date DATE NOT NULL,
-    region VARCHAR(50) NOT NULL,
-    quarterly_target DECIMAL(12,2) NOT NULL,
-    quarterly_actual DECIMAL(12,2) NOT NULL,
-    deals_closed INTEGER NOT NULL,
-    customer_satisfaction_score DECIMAL(3,1) NOT NULL
+    office_location VARCHAR(50) NOT NULL,
+    base_salary DECIMAL(10,2) NOT NULL,
+    bonus_pct DECIMAL(5,2) NOT NULL,
+    utilization_rate DECIMAL(5,2) NOT NULL,
+    training_hours INTEGER NOT NULL,
+    certifications INTEGER NOT NULL,
+    engagement_score DECIMAL(3,1) NOT NULL,
+    is_remote BOOLEAN NOT NULL
+)
+"""
+
+SUPPORT_TICKETS_DDL = """
+CREATE TABLE IF NOT EXISTS support_tickets (
+    ticket_id VARCHAR(36) NOT NULL,
+    created_date DATE NOT NULL,
+    resolved_date DATE,
+    customer_tier VARCHAR(30) NOT NULL,
+    channel VARCHAR(30) NOT NULL,
+    priority VARCHAR(20) NOT NULL,
+    issue_category VARCHAR(50) NOT NULL,
+    assigned_team VARCHAR(50) NOT NULL,
+    resolution_hours DECIMAL(8,2),
+    satisfaction_rating INTEGER,
+    escalated BOOLEAN NOT NULL,
+    first_contact_resolution BOOLEAN NOT NULL
+)
+"""
+
+MARKETING_CAMPAIGNS_DDL = """
+CREATE TABLE IF NOT EXISTS marketing_campaigns (
+    campaign_id VARCHAR(36) NOT NULL,
+    campaign_name VARCHAR(200) NOT NULL,
+    launch_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    channel VARCHAR(50) NOT NULL,
+    target_audience VARCHAR(50) NOT NULL,
+    budget DECIMAL(12,2) NOT NULL,
+    spend DECIMAL(12,2) NOT NULL,
+    impressions INTEGER NOT NULL,
+    clicks INTEGER NOT NULL,
+    conversions INTEGER NOT NULL,
+    revenue_attributed DECIMAL(12,2) NOT NULL,
+    status VARCHAR(20) NOT NULL
 )
 """
 
 # --- Categorical values ---
 
-CATEGORIES = ["Electronics", "Office Furniture", "Office Supplies", "Software", "Networking"]
-REGIONS = ["North America", "Europe", "Asia Pacific", "Latin America"]
-PAYMENT_METHODS = ["Credit Card", "Wire Transfer", "PayPal", "Purchase Order", "ACH"]
-SEGMENTS = ["Enterprise", "Mid-Market", "Small Business", "Startup", "Government"]
-DEPARTMENTS = ["Sales", "Engineering", "Marketing", "Customer Success", "Operations"]
-ROLES = ["Manager", "Senior IC", "IC", "Director", "VP"]
+DEPARTMENTS = ["Engineering", "Product", "Design", "Data Science", "DevOps", "QA", "Security"]
+JOB_LEVELS = ["Junior", "Mid", "Senior", "Staff", "Principal", "Lead", "Director"]
+OFFICE_LOCATIONS = ["San Francisco", "New York", "London", "Berlin", "Toronto", "Sydney"]
 
-PRODUCT_NAMES = [
-    "Laptop Pro 15", "Wireless Mouse", "Standing Desk", "Monitor 27in",
-    "Keyboard Mechanical", "Webcam HD", "Desk Chair Ergonomic", "USB Hub",
-    "Headset Noise Cancel", "Whiteboard 6ft", "Printer Laser", "Cable Kit",
-    "Docking Station", "Tablet 10in", "Router Enterprise", "Switch 24-port",
-    "Firewall Appliance", "UPS Battery", "Projector 4K", "Phone System",
+CUSTOMER_TIERS = ["Free", "Starter", "Professional", "Enterprise", "Strategic"]
+SUPPORT_CHANNELS = ["Email", "Chat", "Phone", "Self-Service Portal", "Social Media"]
+PRIORITIES = ["Low", "Medium", "High", "Critical"]
+ISSUE_CATEGORIES = [
+    "Login/Authentication", "Billing Dispute", "Feature Request",
+    "Performance Issue", "Data Export", "Integration Error",
+    "Account Management", "API Failure", "Onboarding Help", "Downtime Report",
+]
+SUPPORT_TEAMS = ["Tier 1 Support", "Tier 2 Support", "Tier 3 Engineering", "Billing Team", "Account Management"]
+
+MARKETING_CHANNELS = ["Paid Search", "Social Media", "Email Newsletter", "Content Marketing", "Webinar", "Partner Referral"]
+TARGET_AUDIENCES = ["Developers", "CTOs/VPs", "Small Business Owners", "Enterprise Buyers", "Startup Founders", "Data Teams"]
+CAMPAIGN_STATUSES = ["Active", "Completed", "Paused"]
+
+CAMPAIGN_NAME_PREFIXES = [
+    "Spring Launch", "Q1 Blitz", "Developer Summit", "Cloud Migration",
+    "AI Revolution", "Scale Up", "Data Unlock", "Platform Shift",
+    "Growth Accelerator", "Innovation Week", "Winter Push", "Year-End Drive",
+    "Startup Special", "Enterprise Focus", "Partner Power", "Retention Boost",
 ]
 
 FIRST_NAMES = [
-    "James", "Maria", "Robert", "Sarah", "David", "Jennifer", "Michael",
-    "Lisa", "William", "Patricia", "Richard", "Linda", "Joseph", "Barbara",
-    "Thomas", "Elizabeth", "Daniel", "Susan", "Matthew", "Jessica",
+    "Aisha", "Carlos", "Priya", "Oluwaseun", "Yuki", "Mikhail",
+    "Fatima", "Henrik", "Mei", "Sergei", "Amara", "Chen",
+    "Ingrid", "Dmitri", "Nalini", "Kwame", "Anya", "Lars",
+    "Chioma", "Kenji",
 ]
 
 LAST_NAMES = [
-    "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller",
-    "Davis", "Rodriguez", "Martinez", "Anderson", "Taylor", "Thomas",
-    "Hernandez", "Moore", "Martin", "Jackson", "Thompson", "White", "Lee",
+    "Nakamura", "Okafor", "Petrov", "Singh", "Johansson", "Al-Rashid",
+    "Kim", "Fernandez", "Okonkwo", "Andersen", "Patel", "Muller",
+    "Takahashi", "Adeyemi", "Bergstrom", "Chakraborty", "Ivanova", "Park",
+    "Osei", "Lindqvist",
 ]
 
 
@@ -115,63 +140,87 @@ def random_date(start_year: int = 2022, end_year: int = 2024) -> str:
     return random_day.isoformat()
 
 
-def generate_sales_transactions(n: int = 150) -> list[str]:
-    """Generate INSERT statements for sales_transactions."""
+def generate_workforce_metrics(n: int = 120) -> list[str]:
+    """Generate INSERT statements for workforce_metrics."""
     rows = []
     for i in range(n):
-        tid = f"TXN-{i+1:05d}"
-        tdate = random_date()
-        cid = f"CUST-{random.randint(1, 500):04d}"
-        product = random.choice(PRODUCT_NAMES)
-        category = random.choice(CATEGORIES)
-        region = random.choice(REGIONS)
-        quantity = random.randint(1, 50)
-        unit_price = round(random.uniform(10.0, 2500.0), 2)
-        total_amount = round(quantity * unit_price, 2)
-        payment = random.choice(PAYMENT_METHODS)
-        rows.append(
-            f"('{tid}', '{tdate}', '{cid}', '{product}', '{category}', "
-            f"'{region}', {quantity}, {unit_price}, {total_amount}, '{payment}')"
-        )
-    return rows
-
-
-def generate_customer_segments(n: int = 100) -> list[str]:
-    """Generate INSERT statements for customer_segments."""
-    rows = []
-    for i in range(n):
-        cid = f"CUST-{i+1:04d}"
-        name = f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}"
-        segment = random.choice(SEGMENTS)
-        ltv = round(random.uniform(1000.0, 500000.0), 2)
-        signup = random_date(2018, 2023)
-        region = random.choice(REGIONS)
-        orders = random.randint(1, 200)
-        last_order = random_date(2023, 2024)
-        rows.append(
-            f"('{cid}', '{name}', '{segment}', {ltv}, '{signup}', "
-            f"'{region}', {orders}, '{last_order}')"
-        )
-    return rows
-
-
-def generate_employee_performance(n: int = 80) -> list[str]:
-    """Generate INSERT statements for employee_performance."""
-    rows = []
-    for i in range(n):
-        eid = f"EMP-{i+1:04d}"
+        eid = f"EMP-{i+1:05d}"
         name = f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}"
         dept = random.choice(DEPARTMENTS)
-        role = random.choice(ROLES)
-        hire = random_date(2015, 2023)
-        region = random.choice(REGIONS)
-        target = round(random.uniform(50000.0, 500000.0), 2)
-        actual = round(target * random.uniform(0.6, 1.4), 2)
-        deals = random.randint(0, 50)
-        satisfaction = round(random.uniform(3.0, 5.0), 1)
+        level = random.choice(JOB_LEVELS)
+        hire = random_date(2016, 2024)
+        location = random.choice(OFFICE_LOCATIONS)
+        salary = round(random.uniform(65000.0, 220000.0), 2)
+        bonus = round(random.uniform(5.0, 30.0), 2)
+        utilization = round(random.uniform(55.0, 98.0), 2)
+        training = random.randint(0, 80)
+        certs = random.randint(0, 8)
+        engagement = round(random.uniform(2.5, 5.0), 1)
+        is_remote = random.choice(["true", "false"])
         rows.append(
-            f"('{eid}', '{name}', '{dept}', '{role}', '{hire}', "
-            f"'{region}', {target}, {actual}, {deals}, {satisfaction})"
+            f"('{eid}', '{name}', '{dept}', '{level}', '{hire}', "
+            f"'{location}', {salary}, {bonus}, {utilization}, {training}, "
+            f"{certs}, {engagement}, {is_remote})"
+        )
+    return rows
+
+
+def generate_support_tickets(n: int = 200) -> list[str]:
+    """Generate INSERT statements for support_tickets."""
+    rows = []
+    for i in range(n):
+        tid = f"TKT-{i+1:06d}"
+        created = random_date(2023, 2024)
+        # Some tickets unresolved
+        if random.random() < 0.15:
+            resolved = "NULL"
+            resolution_hours = "NULL"
+            satisfaction = "NULL"
+        else:
+            days_to_resolve = random.randint(0, 14)
+            resolved_date = date.fromisoformat(created) + timedelta(days=days_to_resolve)
+            resolved = f"'{resolved_date.isoformat()}'"
+            resolution_hours = round(random.uniform(0.5, 336.0), 2)
+            satisfaction = random.randint(1, 5)
+        tier = random.choice(CUSTOMER_TIERS)
+        channel = random.choice(SUPPORT_CHANNELS)
+        priority = random.choice(PRIORITIES)
+        category = random.choice(ISSUE_CATEGORIES)
+        team = random.choice(SUPPORT_TEAMS)
+        escalated = random.choice(["true", "false"])
+        fcr = random.choice(["true", "false"])
+        rows.append(
+            f"('{tid}', '{created}', {resolved}, '{tier}', '{channel}', "
+            f"'{priority}', '{category}', '{team}', {resolution_hours}, "
+            f"{satisfaction}, {escalated}, {fcr})"
+        )
+    return rows
+
+
+def generate_marketing_campaigns(n: int = 80) -> list[str]:
+    """Generate INSERT statements for marketing_campaigns."""
+    rows = []
+    for i in range(n):
+        cid = f"CAMP-{i+1:04d}"
+        name = f"{random.choice(CAMPAIGN_NAME_PREFIXES)} - {random.choice(MARKETING_CHANNELS)}"
+        launch = random_date(2023, 2024)
+        launch_d = date.fromisoformat(launch)
+        duration = random.randint(7, 90)
+        end_d = launch_d + timedelta(days=duration)
+        end = end_d.isoformat()
+        channel = random.choice(MARKETING_CHANNELS)
+        audience = random.choice(TARGET_AUDIENCES)
+        budget = round(random.uniform(5000.0, 150000.0), 2)
+        spend = round(budget * random.uniform(0.4, 1.0), 2)
+        impressions = random.randint(10000, 2000000)
+        clicks = random.randint(int(impressions * 0.005), int(impressions * 0.08))
+        conversions = random.randint(int(clicks * 0.01), int(clicks * 0.15))
+        revenue = round(conversions * random.uniform(50.0, 500.0), 2)
+        status = random.choice(CAMPAIGN_STATUSES)
+        rows.append(
+            f"('{cid}', '{name}', '{launch}', '{end}', '{channel}', "
+            f"'{audience}', {budget}, {spend}, {impressions}, {clicks}, "
+            f"{conversions}, {revenue}, '{status}')"
         )
     return rows
 
@@ -220,29 +269,30 @@ async def provision() -> None:
     tables_created = 0
     table_rows: dict[str, int] = {}
 
-    # --- sales_transactions ---
-    table_name = "sales_transactions"
+    # --- workforce_metrics ---
+    table_name = "workforce_metrics"
     if FORCE_RECREATE:
         await drop_table(connector, table_name)
     if not FORCE_RECREATE and await check_table_exists(connector, table_name):
         print(f"  ⊘ Table '{table_name}' already exists — skipping")
     else:
         print(f"  Creating table '{table_name}'...")
-        result = await connector.execute_statement(SALES_TRANSACTIONS_DDL)
+        result = await connector.execute_statement(WORKFORCE_METRICS_DDL)
         if isinstance(result, RedshiftError):
             print(f"ERROR: Failed to create table '{table_name}': {result.description}")
             print("Aborting provisioning.")
             sys.exit(1)
 
-        rows = generate_sales_transactions(150)
+        rows = generate_workforce_metrics(120)
         # Insert in batches of 50
         for batch_start in range(0, len(rows), 50):
             batch = rows[batch_start:batch_start + 50]
             values_str = ",\n".join(batch)
             insert_sql = (
                 f"INSERT INTO {table_name} "
-                f"(transaction_id, transaction_date, customer_id, product_name, "
-                f"category, region, quantity, unit_price, total_amount, payment_method) "
+                f"(employee_id, employee_name, department, job_level, hire_date, "
+                f"office_location, base_salary, bonus_pct, utilization_rate, "
+                f"training_hours, certifications, engagement_score, is_remote) "
                 f"VALUES {values_str}"
             )
             ins_result = await connector.execute_statement(insert_sql)
@@ -255,28 +305,29 @@ async def provision() -> None:
         table_rows[table_name] = len(rows)
         print(f"  ✓ Created and populated '{table_name}' with {len(rows)} rows")
 
-    # --- customer_segments ---
-    table_name = "customer_segments"
+    # --- support_tickets ---
+    table_name = "support_tickets"
     if FORCE_RECREATE:
         await drop_table(connector, table_name)
     if not FORCE_RECREATE and await check_table_exists(connector, table_name):
         print(f"  ⊘ Table '{table_name}' already exists — skipping")
     else:
         print(f"  Creating table '{table_name}'...")
-        result = await connector.execute_statement(CUSTOMER_SEGMENTS_DDL)
+        result = await connector.execute_statement(SUPPORT_TICKETS_DDL)
         if isinstance(result, RedshiftError):
             print(f"ERROR: Failed to create table '{table_name}': {result.description}")
             print("Aborting provisioning.")
             sys.exit(1)
 
-        rows = generate_customer_segments(100)
+        rows = generate_support_tickets(200)
         for batch_start in range(0, len(rows), 50):
             batch = rows[batch_start:batch_start + 50]
             values_str = ",\n".join(batch)
             insert_sql = (
                 f"INSERT INTO {table_name} "
-                f"(customer_id, customer_name, segment, lifetime_value, "
-                f"signup_date, region, total_orders, last_order_date) "
+                f"(ticket_id, created_date, resolved_date, customer_tier, "
+                f"channel, priority, issue_category, assigned_team, "
+                f"resolution_hours, satisfaction_rating, escalated, first_contact_resolution) "
                 f"VALUES {values_str}"
             )
             ins_result = await connector.execute_statement(insert_sql)
@@ -289,29 +340,29 @@ async def provision() -> None:
         table_rows[table_name] = len(rows)
         print(f"  ✓ Created and populated '{table_name}' with {len(rows)} rows")
 
-    # --- employee_performance ---
-    table_name = "employee_performance"
+    # --- marketing_campaigns ---
+    table_name = "marketing_campaigns"
     if FORCE_RECREATE:
         await drop_table(connector, table_name)
     if not FORCE_RECREATE and await check_table_exists(connector, table_name):
         print(f"  ⊘ Table '{table_name}' already exists — skipping")
     else:
         print(f"  Creating table '{table_name}'...")
-        result = await connector.execute_statement(EMPLOYEE_PERFORMANCE_DDL)
+        result = await connector.execute_statement(MARKETING_CAMPAIGNS_DDL)
         if isinstance(result, RedshiftError):
             print(f"ERROR: Failed to create table '{table_name}': {result.description}")
             print("Aborting provisioning.")
             sys.exit(1)
 
-        rows = generate_employee_performance(80)
+        rows = generate_marketing_campaigns(80)
         for batch_start in range(0, len(rows), 50):
             batch = rows[batch_start:batch_start + 50]
             values_str = ",\n".join(batch)
             insert_sql = (
                 f"INSERT INTO {table_name} "
-                f"(employee_id, employee_name, department, role, hire_date, "
-                f"region, quarterly_target, quarterly_actual, deals_closed, "
-                f"customer_satisfaction_score) "
+                f"(campaign_id, campaign_name, launch_date, end_date, channel, "
+                f"target_audience, budget, spend, impressions, clicks, "
+                f"conversions, revenue_attributed, status) "
                 f"VALUES {values_str}"
             )
             ins_result = await connector.execute_statement(insert_sql)

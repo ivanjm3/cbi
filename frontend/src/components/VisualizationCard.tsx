@@ -18,6 +18,7 @@ import { ChartRenderer } from './ChartRenderer';
 import { CardToolbar } from './CardToolbar';
 import { FullscreenModal } from './FullscreenModal';
 import { StrandConversation } from './StrandConversation';
+import { VisualizationPrompt } from './VisualizationPrompt';
 
 export interface VisualizationCardProps {
   card: CardState;
@@ -29,7 +30,7 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
   const activeCardId = useSessionStore((s) => s.activeCardId);
   const setActiveCard = useSessionStore((s) => s.setActiveCard);
   const strands = useSessionStore((s) => s.strands);
-  const loading = useSessionStore((s) => s.loading);
+  const strandLoading = useSessionStore((s) => s.strandLoading);
   const chartRef = useRef<HTMLDivElement>(null);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
@@ -37,6 +38,7 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
   
   // Find strand for this card (if any)
   const strand = Object.values(strands).find(s => s.cardId === card.id) || null;
+  const strandIsLoading = strand ? strandLoading[strand.id] || false : false;
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -90,6 +92,9 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
       ].join(' ')}
       style={widthStyle}
     >
+      {/* Visualization opt-in prompt */}
+      <VisualizationPrompt card={card} />
+
       {/* Pinned indicator */}
       {card.pinned && (
         <div
@@ -155,7 +160,7 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
 
         {/* Conversation Strand */}
         <div className="border-t border-border-default/50 mt-auto">
-          <StrandConversation cardId={card.id} strand={strand} isLoading={loading} />
+          <StrandConversation cardId={card.id} strand={strand} isLoading={strandIsLoading} />
         </div>
       </div>
 

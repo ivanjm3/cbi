@@ -34,17 +34,17 @@ AGENT_REGISTRATIONS = [
             "ontology:supplier_info",
         ],
     },
-    # {
-    #     "agent_id": "redshift-spoke-agent",
-    #     "agent_name": "Redshift Spoke Agent",
-    #     "data_source": "redshift",
-    #     "endpoint_url": REDSHIFT_AGENT_URL,
-    #     "entity_refs": [
-    #         "ontology:sales_transactions",
-    #         "ontology:customer_segments",
-    #         "ontology:employee_performance",
-    #     ],
-    # },
+    {
+        "agent_id": "redshift-spoke-agent",
+        "agent_name": "Redshift Spoke Agent",
+        "data_source": "redshift",
+        "endpoint_url": REDSHIFT_AGENT_URL,
+        "entity_refs": [
+            "ontology:workforce_metrics",
+            "ontology:support_tickets",
+            "ontology:marketing_campaigns",
+        ],
+    },
 ]
 
 
