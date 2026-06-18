@@ -1,0 +1,3 @@
+[submodule "mcps"]
+	path = mcps
+	url = https://github.com/ivanjm3/mcps
