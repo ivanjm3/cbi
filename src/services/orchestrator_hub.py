@@ -4,9 +4,11 @@ Central routing agent that checks the Result Cache, resolves agents from
 the Ontology Store via entity_refs, dispatches work to Spoke Agents using
 Strands SDK tool-calling, and merges results into a single response.
 
-The Orchestrator is a Strands Agent instance that uses spoke agent invocations
-as @tool-decorated functions. The LLM reasons about which agents to call
-based on the intent and ontology context.
+The Orchestrator supports two dispatch modes:
+1. MCP dispatch (default): Calls MCP server tools over Streamable HTTP
+2. Legacy HTTP dispatch: POSTs to spoke agent FastAPI endpoints (fallback)
+
+The dispatch mode is chosen based on whether MCP servers are reachable.
 
 Supports runtime agent registration and deregistration without restart.
 
@@ -65,6 +67,31 @@ def set_agent_registry_callback(callback: Callable) -> None:
     _agent_registry_callback = callback
 
 
+def _normalize_columns(columns: list) -> list[str]:
+    """Normalize column data to a flat list of string names.
+
+    MCP servers may return columns as dicts (e.g. {"name": "col", "type": "VARCHAR"})
+    or as plain strings. The visualization pipeline expects plain strings.
+
+    Args:
+        columns: List of column names (strings) or column metadata (dicts).
+
+    Returns:
+        List of column name strings.
+    """
+    if not columns:
+        return []
+    result = []
+    for col in columns:
+        if isinstance(col, str):
+            result.append(col)
+        elif isinstance(col, dict):
+            result.append(col.get("name", col.get("column_name", str(col))))
+        else:
+            result.append(str(col))
+    return result
+
+
 @tool
 def check_result_cache(cache_key: str) -> str:
     """Check the result cache for a previously computed response.
@@ -119,6 +146,9 @@ def dispatch_to_spoke_agent(agent_id: str, endpoint_url: str, intent_json: str) 
 
     Makes an HTTP POST call to the spoke agent's invoke endpoint with the
     structured intent. Handles timeouts and connection errors.
+
+    This is the LEGACY dispatch path. Prefer MCP dispatch via
+    dispatch_via_mcp when MCP servers are available.
 
     Args:
         agent_id: The identifier of the spoke agent to call.
@@ -188,6 +218,118 @@ def dispatch_to_spoke_agent(agent_id: str, endpoint_url: str, intent_json: str) 
 
     _dispatch_results.append(result)
     return json.dumps(result)
+
+
+@tool
+def dispatch_via_mcp(entity_refs: list[str], query_type: str, query_text: str, routing_metadata: dict | None = None) -> str:
+    """Dispatch data retrieval via MCP servers based on entity refs.
+
+    Calls the appropriate MCP server tools (S3 or Redshift) based on
+    which ontology concepts are referenced. This is the PRIMARY dispatch
+    path when MCP servers are available.
+
+    Args:
+        entity_refs: List of ontology concept IDs from the structured intent.
+        query_type: Query type — one of 'lookup', 'aggregation', 'comparison'.
+        query_text: Original query text for context in SQL generation.
+        routing_metadata: Optional routing metadata with hints like group_by_hint.
+
+    Returns:
+        JSON string with results from MCP tool calls.
+    """
+    import asyncio
+
+    from src.mcp_servers.mcp_client import get_mcp_client
+
+    mcp_client = get_mcp_client()
+    
+    if routing_metadata is None:
+        routing_metadata = {}
+
+    try:
+        # Try to get existing event loop
+        loop = asyncio.get_running_loop()
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(
+                asyncio.run,
+                mcp_client.dispatch_for_entity_refs(entity_refs, query_type, query_text, routing_metadata),
+            )
+            mcp_results = future.result(timeout=60)
+    except RuntimeError:
+        # No running loop
+        mcp_results = asyncio.run(
+            mcp_client.dispatch_for_entity_refs(entity_refs, query_type, query_text, routing_metadata)
+        )
+
+    # Convert MCP results into dispatch_results format for _build_response_from_results
+    for mcp_result in mcp_results:
+        if "error" in mcp_result:
+            dispatch_entry = {
+                "status": "error",
+                "agent_id": f"mcp-{mcp_result.get('server', 'unknown')}",
+                "error_type": "MCP_ERROR",
+                "error_description": mcp_result.get("error", "Unknown MCP error"),
+            }
+        else:
+            # Build an AgentResult-compatible payload
+            source = mcp_result.pop("_source", "mcp")
+            entity_refs_used = mcp_result.pop("_entity_refs", [])
+            sql_used = mcp_result.pop("_sql", None)
+
+            # Determine agent_id and data_source from the source
+            if source.startswith("s3:"):
+                agent_id = "mcp-s3-server"
+                data_source = source.replace("s3:", "")
+            elif source.startswith("redshift:"):
+                agent_id = "mcp-redshift-server"
+                data_source = source.replace("redshift:", "")
+            else:
+                agent_id = "mcp-unknown"
+                data_source = source
+
+            # Format as AgentResult payload
+            columns_normalized = _normalize_columns(mcp_result.get("columns", []))
+            rows_raw = mcp_result.get("rows", [])
+
+            # Normalize rows: MCP may return list of dicts or list of lists
+            if rows_raw and isinstance(rows_raw[0], dict):
+                rows_normalized = [
+                    [row.get(col, None) for col in columns_normalized]
+                    for row in rows_raw
+                ]
+            else:
+                rows_normalized = rows_raw
+
+            payload = {
+                "data_type": "tabular",
+                "columns": columns_normalized,
+                "rows": rows_normalized,
+                "row_count": mcp_result.get("row_count", len(rows_normalized)),
+            }
+
+            # Preserve additional metadata
+            if sql_used:
+                payload["sql_query"] = sql_used
+            if mcp_result.get("format"):
+                payload["format"] = mcp_result["format"]
+            if mcp_result.get("total_rows"):
+                payload["total_rows"] = mcp_result["total_rows"]
+
+            dispatch_entry = {
+                "status": "success",
+                "agent_id": agent_id,
+                "result": {
+                    "status": "success",
+                    "payload": payload,
+                    "agent_id": agent_id,
+                    "data_source": data_source,
+                },
+            }
+
+        _dispatch_results.append(dispatch_entry)
+
+    return json.dumps({"mcp_dispatch_count": len(mcp_results), "results": mcp_results})
 
 
 ORCHESTRATOR_SYSTEM_PROMPT = """\
@@ -279,7 +421,7 @@ class OrchestratorHub:
 
         agent_kwargs: dict[str, Any] = {
             "system_prompt": ORCHESTRATOR_SYSTEM_PROMPT,
-            "tools": [check_result_cache, resolve_available_agents, dispatch_to_spoke_agent],
+            "tools": [check_result_cache, resolve_available_agents, dispatch_to_spoke_agent, dispatch_via_mcp],
             "model": get_strands_bedrock_model(model_id),
             "callback_handler": None,
         }
@@ -479,10 +621,13 @@ class OrchestratorHub:
         resolved_agents: list[AgentRegistration],
         cache_key: str,
     ) -> OrchestratorResponse | OrchestratorError:
-        """Dispatch directly to all resolved agents concurrently.
+        """Dispatch via MCP servers first, falling back to legacy HTTP agents.
 
-        Entity_ref matching already identifies the correct agents.
-        Checks cancellation registry before each agent dispatch.
+        Tries MCP dispatch (Streamable HTTP to MCP servers) as the primary
+        path. If MCP fails (servers unreachable), falls back to the legacy
+        HTTP POST dispatch to spoke agent FastAPI endpoints.
+
+        Checks cancellation registry before dispatch.
 
         Args:
             intent: The structured intent to dispatch.
@@ -496,18 +641,61 @@ class OrchestratorHub:
         _dispatch_results = []  # Reset accumulator
 
         correlation_id = self._current_correlation_id
-        intent_json = intent.model_dump_json()
 
-        # Dispatch to resolved agents, checking cancellation before each
+        # Check cancellation before starting
+        if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
+            return OrchestratorError(
+                error_type="QUERY_CANCELLED",
+                message="Query was cancelled before dispatch.",
+                query_id=intent.query_id,
+            )
+
+        # PRIMARY PATH: Try MCP dispatch
+        try:
+            query_text = intent.routing_metadata.get("query_text", "") if intent.routing_metadata else ""
+            dispatch_via_mcp(
+                entity_refs=intent.entity_refs,
+                query_type=intent.query_type,
+                query_text=query_text,
+                routing_metadata=intent.routing_metadata or {},
+            )
+
+            # Check if MCP dispatch produced results
+            if _dispatch_results:
+                has_success = any(r.get("status") == "success" for r in _dispatch_results)
+                if has_success:
+                    logger.info(
+                        json.dumps({
+                            "service_name": "orchestrator_hub",
+                            "operation": "_direct_dispatch",
+                            "event": "mcp_dispatch_success",
+                            "query_id": str(intent.query_id),
+                            "dispatch_count": len(_dispatch_results),
+                        })
+                    )
+                    return self._build_response_from_results(intent, resolved_agents, cache_key)
+        except Exception as e:
+            logger.warning(
+                json.dumps({
+                    "service_name": "orchestrator_hub",
+                    "operation": "_direct_dispatch",
+                    "event": "mcp_dispatch_failed_fallback_to_http",
+                    "query_id": str(intent.query_id),
+                    "error": str(e),
+                })
+            )
+            _dispatch_results = []  # Reset for fallback
+
+        # FALLBACK PATH: Legacy HTTP dispatch to spoke agents
         import asyncio
         import concurrent.futures
 
+        intent_json = intent.model_dump_json()
+
         try:
             loop = asyncio.get_running_loop()
-            # Already in an async context — use ThreadPoolExecutor
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 for agent in resolved_agents:
-                    # Check cancellation before each dispatch
                     if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
                         logger.info(
                             json.dumps({
@@ -526,9 +714,8 @@ class OrchestratorHub:
                         endpoint_url=agent.endpoint_url,
                         intent_json=intent_json,
                     )
-                    future.result()  # Wait for each dispatch to complete before checking cancellation
+                    future.result()
         except RuntimeError:
-            # No running loop — use sequential dispatch with cancellation checks
             for agent in resolved_agents:
                 if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
                     logger.info(

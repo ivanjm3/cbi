@@ -8,8 +8,13 @@ Services:
   - Orchestrator Hub:      port 8002
   - Guardrail Layer:       port 8003
   - Visualization Renderer: port 8004
-  - Spoke Agent (JSON/CSV): port 8010
-  - Redshift Spoke Agent:  port 8011
+  - Spoke Agent (JSON/CSV): port 8010 (legacy fallback)
+  - Redshift Spoke Agent:  port 8011 (legacy fallback)
+
+MCP Servers (Streamable HTTP):
+  - S3 Data Server:        port 8020
+  - Redshift Data Server:  port 8021
+  - Ontology Server:       port 8022
 """
 
 import asyncio
@@ -57,16 +62,52 @@ SERVICES = [
     },
 ]
 
+# MCP Servers — started as Python scripts (not uvicorn) using Streamable HTTP transport
+MCP_SERVERS = [
+    {
+        "name": "MCP S3 Data Server",
+        "module": "src.mcp_servers.s3_server",
+        "port": 8020,
+    },
+    {
+        "name": "MCP Redshift Data Server",
+        "module": "src.mcp_servers.redshift_server",
+        "port": 8021,
+    },
+    {
+        "name": "MCP Ontology Server",
+        "module": "src.mcp_servers.ontology_server",
+        "port": 8022,
+    },
+]
+
 processes: list[subprocess.Popen] = []
 
 
 def start_services() -> None:
-    """Start all services as separate uvicorn processes."""
+    """Start all services as separate uvicorn processes and MCP servers."""
     print("=" * 60)
     print("  Ontology NLP Query System — Starting All Services")
     print("=" * 60)
     print()
 
+    # Start MCP servers first (they need to be ready before orchestrator uses them)
+    print("  MCP Servers (Streamable HTTP):")
+    for mcp in MCP_SERVERS:
+        cmd = [
+            sys.executable, "-m", mcp["module"],
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=sys.stdout,
+            stderr=subprocess.STDOUT,
+        )
+        processes.append(proc)
+        print(f"    ✓ {mcp['name']:30s} → http://localhost:{mcp['port']}/mcp")
+    print()
+
+    # Start FastAPI services
+    print("  FastAPI Services:")
     for svc in SERVICES:
         cmd = [
             sys.executable, "-m", "uvicorn",
@@ -81,13 +122,16 @@ def start_services() -> None:
             stderr=subprocess.STDOUT,
         )
         processes.append(proc)
-        print(f"  ✓ {svc['name']:30s} → http://localhost:{svc['port']}")
+        print(f"    ✓ {svc['name']:30s} → http://localhost:{svc['port']}")
 
     print()
 
 
-def wait_for_health(timeout: float = 30.0) -> bool:
+def wait_for_health(timeout: float = 60.0) -> bool:
     """Wait for all services to respond to health checks.
+
+    Checks FastAPI services via /health endpoints and MCP servers
+    via their /mcp endpoint availability.
 
     Args:
         timeout: Maximum seconds to wait.
@@ -100,6 +144,28 @@ def wait_for_health(timeout: float = 30.0) -> bool:
 
     while time.time() - start < timeout:
         all_ready = True
+
+        # Check MCP servers (they respond on /mcp with Streamable HTTP)
+        for mcp in MCP_SERVERS:
+            try:
+                resp = httpx.get(
+                    f"http://localhost:{mcp['port']}/mcp",
+                    timeout=2.0,
+                )
+                # MCP Streamable HTTP endpoint returns 405/406 for GET (expects POST)
+                # Any HTTP response means the server is up and listening
+                if resp.status_code not in (200, 400, 405, 406):
+                    all_ready = False
+                    break
+            except (httpx.ConnectError, httpx.TimeoutException):
+                all_ready = False
+                break
+
+        if not all_ready:
+            time.sleep(1.0)
+            continue
+
+        # Check FastAPI services
         for svc in SERVICES:
             try:
                 resp = httpx.get(
@@ -160,6 +226,11 @@ def main() -> None:
         print()
         print("  Submit queries to: POST http://localhost:8001/query")
         print('  Body: {"query_text": "show me quarterly sales revenue"}')
+        print()
+        print("  MCP Endpoints (Streamable HTTP):")
+        print("    S3 Data:    http://localhost:8020/mcp")
+        print("    Redshift:   http://localhost:8021/mcp")
+        print("    Ontology:   http://localhost:8022/mcp")
         print()
         print("  Press Ctrl+C to stop all services.")
         print()

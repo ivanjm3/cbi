@@ -29,6 +29,7 @@ Think of it as a "ChatGPT for your company's data" — but with a structured, tr
 | **Content Safety** | Amazon Bedrock Guardrails (input + output filtering) |
 | **Storage** | Amazon S3 (ontology, data sources, cost logs, history) |
 | **Data Warehouse** | Amazon Redshift (optional, via Data API) |
+| **MCP Layer** | FastMCP (Model Context Protocol) — exposes data/schema/ontology to AI agents |
 | **Testing** | pytest, Hypothesis (property-based), Vitest (frontend) |
 | **Deployment** | Docker, AWS App Runner, CloudFront |
 
@@ -68,16 +69,16 @@ Think of it as a "ChatGPT for your company's data" — but with a structured, tr
 │  │  • Strands Agent with tool-calling LLM                                 │ │
 │  │  • Checks result cache                                                 │ │
 │  │  • Resolves agents from entity_refs (ontology overlap)                 │ │
-│  │  • Dispatches to spoke agents via HTTP                                 │ │
+│  │  • PRIMARY: Dispatches via MCP tools (Streamable HTTP)                 │ │
+│  │  • FALLBACK: Dispatches to spoke agents via HTTP POST                  │ │
 │  │  • Supports DIRECT (single-agent) + AGENTIC (multi-agent) dispatch     │ │
 │  └──────┬─────────────────────────────────────────────────────────┬───────┘ │
-│         │                                                         │         │
+│         │ MCP (primary)                          HTTP (fallback)  │         │
 │  ┌──────▼──────────────────┐              ┌───────────────────────▼───────┐ │
-│  │  Spoke Agent (port 8010)│              │ Redshift Spoke Agent (8011)   │ │
-│  │  • Queries S3 JSON/CSV  │              │ • Generates SQL via LLM       │ │
-│  │  • Deterministic (no LLM)│             │ • Executes via Redshift Data  │ │
-│  │  • Lookup/Aggregate/    │              │   API (boto3)                 │ │
-│  │    Compare operations   │              │ • Returns tabular/aggregated  │ │
+│  │  MCP Servers            │              │ Legacy Spoke Agents           │ │
+│  │  • S3 (port 8020)      │              │ • Spoke Agent (port 8010)     │ │
+│  │  • Redshift (port 8021)│              │ • Redshift Agent (port 8011)  │ │
+│  │  • Ontology (port 8022)│              │                               │ │
 │  └─────────────────────────┘              └───────────────────────────────┘ │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
@@ -107,6 +108,62 @@ Think of it as a "ChatGPT for your company's data" — but with a structured, tr
 │  └──────────────────┘  └──────────┘  └──────────────────┘  └────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 3.1 MCP Server Architecture (Production Data Layer)
+
+The system uses three **MCP (Model Context Protocol) servers** as the **primary data access layer** in the production pipeline. The Orchestrator Hub acts as an MCP client, calling MCP server tools over Streamable HTTP instead of custom HTTP POST endpoints.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│        MCP LAYER — Production Data Access (Streamable HTTP transport)         │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  S3 Data Server (port 8020)                                           │   │
+│  │  Tools: list_datasets, read_dataset, get_schema                       │   │
+│  │  Resources: s3://{filename}/schema                                    │   │
+│  │  → Replaces spoke_agent.py for S3 JSON/CSV data retrieval             │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  Redshift Data Server (port 8021)                                     │   │
+│  │  Tools: get_tables, get_schema, run_query, preview_table,             │   │
+│  │         get_query_history                                             │   │
+│  │  Resources: redshift://tables/{table_name}/schema                     │   │
+│  │  → Replaces redshift_spoke_agent.py for SQL execution                 │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  Ontology Server (port 8022)                                          │   │
+│  │  Tools: get_ontology_concepts, search_ontology, map_term_to_column    │   │
+│  │  Resources: ontology://concepts                                       │   │
+│  │  → Bridges natural language to data columns across all sources         │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+         │                         │                         │
+         ▼                         ▼                         ▼
+┌─────────────────┐   ┌──────────────────────┐   ┌────────────────────────┐
+│  Amazon S3      │   │  Amazon Redshift      │   │  Ontology (S3/local)   │
+│  (data-sources/)│   │  (analytics DB)       │   │  (enterprise_ontology) │
+└─────────────────┘   └──────────────────────┘   └────────────────────────┘
+```
+
+**How dispatch works in production:**
+
+1. Orchestrator resolves entity_refs → determines which MCP server(s) to call
+2. Orchestrator calls `dispatch_via_mcp(entity_refs, query_type, query_text)`
+3. MCP Client Manager routes to the correct server(s) via Streamable HTTP
+4. Results flow back as `AgentResult` payloads into the existing pipeline
+5. If MCP servers are unreachable, falls back to legacy HTTP spoke agents (ports 8010/8011)
+
+**Benefits over the legacy spoke agent pattern:**
+- Standardized tool interface (any MCP client can consume these servers)
+- Resources inject schema context before tool selection (better LLM decisions)
+- Each server is independently deployable and testable
+- Adding a new data source = adding a new MCP server (no orchestrator changes)
+- Same servers work for AI dev tools (Kiro, Claude) AND the production pipeline
 
 ---
 
@@ -235,6 +292,15 @@ Central configuration: port assignments, AWS settings (S3 bucket, Bedrock model 
 |------|---------|
 | `spoke_agent.py` | FastAPI app (port 8010) — deterministic data agent that queries S3 JSON/CSV based on entity_refs without using LLM |
 | `redshift_spoke_agent.py` | FastAPI app (port 8011) — generates SQL, executes against Redshift Data API, formats results for the viz pipeline |
+
+#### `src/mcp_servers/` — Model Context Protocol Servers
+
+| File | Purpose |
+|------|---------|
+| `__init__.py` | Package docstring for the MCP server layer |
+| `s3_server.py` | S3 MCP server — `list_datasets`, `read_dataset`, `get_schema` tools + `s3://{filename}/schema` resource |
+| `redshift_server.py` | Redshift MCP server — `get_tables`, `get_schema`, `run_query`, `preview_table`, `get_query_history` tools + `redshift://tables/{table}/schema` resource |
+| `ontology_server.py` | Ontology MCP server — `get_ontology_concepts`, `search_ontology`, `map_term_to_column` tools + `ontology://concepts` resource |
 
 #### `src/services/`
 
@@ -380,6 +446,13 @@ Central configuration: port assignments, AWS settings (S3 bucket, Bedrock model 
 | `agentcore-console-deployment-guide.md` | Step-by-step AgentCore setup |
 | `agent-system-analysis.md` | Analysis of the agent architecture |
 
+### `.kiro/` — AI Development Configuration
+
+| File | Purpose |
+|------|---------|
+| `settings/mcp.json` | MCP server configuration — registers all 3 servers (S3, Redshift, Ontology) with auto-approve lists |
+| `specs/` | Feature specification documents for guided implementation |
+
 ---
 
 ## 6. Key Concepts
@@ -442,6 +515,44 @@ Every LLM-dependent stage has a heuristic fallback ensuring the system **never f
 - Visualization: deterministic chart builder from data shape (no LLM needed)
 - Guardrails: fail-open policy (allow content if Bedrock is down)
 
+### 6.7 MCP (Model Context Protocol) Integration
+
+The system uses three **MCP servers** as the **primary data access layer** in production. The Orchestrator Hub is an MCP client that calls tools on these servers via Streamable HTTP transport. The legacy spoke agent HTTP endpoints (ports 8010/8011) remain as fallbacks.
+
+**Why MCP in production?** Per the MCP spec, servers expose three primitive types:
+
+| Primitive | What it provides | System examples |
+|-----------|-----------------|-----------------|
+| **Tools** | Actions the orchestrator/LLM can execute | `run_query(sql)`, `search_ontology(term)`, `read_dataset(file)` |
+| **Resources** | Read-only context injected *before* tool selection | Table schemas, ontology graph, file metadata |
+| **Prompts** | Reusable prompt templates | *(future: predefined BI query patterns)* |
+
+**How the three MCP servers map to the pipeline:**
+
+```
+StructuredIntent from NLP
+        │
+        ▼
+Orchestrator Hub (MCP Client)
+        │
+        ├──▶ Ontology MCP Server (port 8022)
+        │    • map_term_to_column() — resolves business terms to columns
+        │    • search_ontology() — finds relevant concepts
+        │
+        ├──▶ S3 MCP Server (port 8020)
+        │    • read_dataset() — fetches CSV/JSON data
+        │    • get_schema() — column types and samples
+        │
+        └──▶ Redshift MCP Server (port 8021)
+             • get_schema() — table structure for SQL generation
+             • run_query() — executes SQL and returns results
+             • preview_table() — sample data for context
+```
+
+**Dual-use architecture:** The same MCP servers serve both:
+1. The production pipeline (Orchestrator → MCP tools → data)
+2. AI development tools (Kiro/Claude → MCP tools → data exploration)
+
 ---
 
 ## 7. Data Sources
@@ -459,11 +570,14 @@ Every LLM-dependent stage has a heuristic fallback ensuring the system **never f
 | Service | Port | Role |
 |---------|------|------|
 | NLP Translator | 8001 | Entry point, full pipeline orchestration, frontend serving |
-| Orchestrator Hub | 8002 | Agent resolution and dispatch routing |
+| Orchestrator Hub | 8002 | Agent resolution and MCP/HTTP dispatch routing |
 | Guardrail Layer | 8003 | Content safety validation |
 | Visualization Renderer | 8004 | Chart.js config generation |
-| Spoke Agent (JSON/CSV) | 8010 | Data retrieval from S3 files |
-| Redshift Spoke Agent | 8011 | SQL generation + execution against Redshift |
+| Spoke Agent (JSON/CSV) | 8010 | Legacy fallback — data retrieval from S3 files |
+| Redshift Spoke Agent | 8011 | Legacy fallback — SQL generation + execution |
+| **MCP S3 Data Server** | **8020** | **Primary — S3 dataset discovery, reading, schema** |
+| **MCP Redshift Server** | **8021** | **Primary — Redshift table discovery, SQL execution** |
+| **MCP Ontology Server** | **8022** | **Primary — Ontology search, term-to-column mapping** |
 
 ---
 
@@ -492,6 +606,43 @@ docker run -p 8001:8001 conversational-bi
 ```
 Single container runs all services + serves the built frontend.
 
+### MCP Servers (Production Data Layer)
+
+MCP servers start automatically as part of `python run_all.py` and serve as the primary data access path for the Orchestrator. They also work standalone for testing or AI dev tool integration.
+
+**Started automatically with run_all.py:**
+- S3 Data Server → `http://localhost:8020/mcp`
+- Redshift Data Server → `http://localhost:8021/mcp`
+- Ontology Server → `http://localhost:8022/mcp`
+
+**To run a single MCP server independently:**
+```bash
+python -m src.mcp_servers.s3_server         # port 8020
+python -m src.mcp_servers.redshift_server   # port 8021
+python -m src.mcp_servers.ontology_server   # port 8022
+```
+
+**To use from an MCP client (e.g., for testing):**
+```python
+from fastmcp import Client
+import asyncio
+
+async def test():
+    client = Client("http://localhost:8022/mcp")
+    async with client:
+        result = await client.call_tool("search_ontology", {"query": "revenue"})
+        print(result)
+
+asyncio.run(test())
+```
+
+**AI dev tool integration (Kiro/Claude Desktop):** Also configured via `.kiro/settings/mcp.json` for stdio transport when used in IDE context.
+
+**Prerequisites:**
+- `pip install fastmcp` (already in `pyproject.toml` dependencies)
+- AWS credentials configured (same as the backend — `aws sso login`)
+- For local-only use: the Ontology server falls back to `data/ontology/enterprise_ontology.json` if S3 is unreachable
+
 ---
 
 ## 10. Deployment Architecture
@@ -512,3 +663,4 @@ Two models supported:
 5. **Complete observability** — Structured JSON logging, correlation IDs through every service, cost tracking per invocation.
 6. **Caching everywhere** — 4-layer cache strategy minimizes cost ($) and latency.
 7. **Cooperative cancellation** — Users can cancel any query mid-flight without wasting resources.
+8. **MCP as the data layer** — Data access is standardized via MCP tools/resources over Streamable HTTP. Same servers work for the production pipeline and AI development tools. Legacy spoke agents remain as fallback.

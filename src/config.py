@@ -25,6 +25,11 @@ VIZ_PORT = 8004
 AGENT_A_PORT = 8010
 REDSHIFT_AGENT_PORT = 8011
 
+# MCP Server port assignments (Streamable HTTP transport)
+MCP_S3_PORT = 8020
+MCP_REDSHIFT_PORT = 8021
+MCP_ONTOLOGY_PORT = 8022
+
 # Service base URLs (localhost for Phase 1)
 NLP_URL = f"http://localhost:{NLP_PORT}"
 ORCHESTRATOR_URL = f"http://localhost:{ORCHESTRATOR_PORT}"
@@ -32,6 +37,11 @@ GUARDRAIL_URL = f"http://localhost:{GUARDRAIL_PORT}"
 VIZ_URL = f"http://localhost:{VIZ_PORT}"
 AGENT_A_URL = f"http://localhost:{AGENT_A_PORT}"
 REDSHIFT_AGENT_URL = f"http://localhost:{REDSHIFT_AGENT_PORT}"
+
+# MCP Server base URLs (Streamable HTTP)
+MCP_S3_URL = f"http://localhost:{MCP_S3_PORT}/mcp"
+MCP_REDSHIFT_URL = f"http://localhost:{MCP_REDSHIFT_PORT}/mcp"
+MCP_ONTOLOGY_URL = f"http://localhost:{MCP_ONTOLOGY_PORT}/mcp"
 
 # AWS Configuration
 AWS_PROFILE = os.environ.get("AWS_PROFILE", "PowerUserAccess-654654478821")

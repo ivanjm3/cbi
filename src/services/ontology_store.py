@@ -210,14 +210,17 @@ class OntologyStore:
         Lower scores = better matches:
         0 = exact concept_id match
         1 = exact label match
-        2 = concept_id word containment
-        3 = label word stem match
-        4 = description containment
-        5 = description stem match
+        2 = exact filter_keyword match
+        3 = concept_id word containment
+        4 = label word stem match
+        5 = filter_keyword match
+        6 = description containment
+        7 = description stem match
         """
         label_lower = concept.label.lower()
         concept_id_lower = concept.concept_id.lower().replace("ontology:", "").replace("_", " ")
         description = concept.properties.get("description", "").lower()
+        filter_keywords = concept.properties.get("filter_keywords", [])
 
         # Priority 0: exact concept_id match (e.g. "workforce_metrics" matches ontology:workforce_metrics)
         if keyword.replace(" ", "_") == concept_id_lower.replace(" ", "_"):
@@ -227,11 +230,16 @@ class OntologyStore:
         if keyword in label_lower:
             return 1
 
-        # Priority 2: exact substring in concept_id words
-        if keyword in concept_id_lower:
-            return 2
+        # Priority 2: exact match in filter_keywords (highest priority for user queries)
+        for kw in filter_keywords:
+            if keyword.lower() == kw.lower():
+                return 2
 
-        # Priority 3: stemmed matching on label or concept_id words
+        # Priority 3: exact substring in concept_id words
+        if keyword in concept_id_lower:
+            return 3
+
+        # Priority 4: stemmed matching on label or concept_id words
         label_words = set(label_lower.split())
         concept_id_words = set(concept_id_lower.split())
         all_words = label_words | concept_id_words
@@ -239,19 +247,24 @@ class OntologyStore:
         for stem in stems:
             for word in all_words:
                 if word.startswith(stem) or stem.startswith(word):
-                    return 3
+                    return 4
 
-        # Priority 4: exact substring in description
+        # Priority 5: partial match in filter_keywords (common for multi-word keywords)
+        for kw in filter_keywords:
+            if keyword in kw.lower():
+                return 5
+
+        # Priority 6: exact substring in description
         if keyword in description:
-            return 4
+            return 6
 
-        # Priority 5: stem match in description (only for longer stems)
+        # Priority 7: stem match in description (only for longer stems)
         desc_words = set(description.split())
         for stem in stems:
             if len(stem) >= 4:
                 for word in desc_words:
                     if word.startswith(stem):
-                        return 5
+                        return 7
 
         return None
 

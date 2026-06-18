@@ -62,7 +62,7 @@ class BedrockClassifier:
             ontology_context: List of resolved ontology concepts with their
                 properties, providing domain context for classification.
         Returns:
-            One of "lookup", "aggregation", "comparison". Never returns None.
+            One of "count", "lookup", "aggregation", "comparison". Never returns None.
         """
         # PRIMARY: LLM classification
         prompt = self._build_classification_prompt(query_text, ontology_context)
@@ -131,21 +131,29 @@ class BedrockClassifier:
             query_text: The natural language query.
 
         Returns:
-            One of "lookup", "aggregation", "comparison".
+            One of "count", "lookup", "aggregation", "comparison".
         """
         text = query_text.lower()
 
+        # Detect COUNT queries first (for "how many" questions)
+        count_signals = [
+            "how many", "total number", "how much", "how many total",
+            "count", "what is the total", "number of",
+        ]
+        
         comparison_signals = [
             "compare", "comparison", "versus", " vs ", " vs.", "difference",
             "between", "against", "relative to", "compared to", "contrast",
         ]
         aggregation_signals = [
-            "total", "sum", "average", "avg", "count", "how many",
+            "total", "sum", "average", "avg",
             "trend", "over time", "growth", "aggregate", "overall",
             "breakdown", "distribution", "percentage", "proportion",
             "minimum", "maximum", "median", "mean",
         ]
 
+        if any(s in text for s in count_signals):
+            return "count"
         if any(s in text for s in comparison_signals):
             return "comparison"
         if any(s in text for s in aggregation_signals):

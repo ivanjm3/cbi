@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "s3-data-server": {
+      "command": "python",
+      "args": ["-m", "src.mcp_servers.s3_server"],
+      "env": {
+        "PYTHONPATH": "."
+      },
+      "disabled": false,
+      "autoApprove": ["list_datasets", "read_dataset", "get_schema"]
+    },
+    "redshift-data-server": {
+      "command": "python",
+      "args": ["-m", "src.mcp_servers.redshift_server"],
+      "env": {
+        "PYTHONPATH": "."
+      },
+      "disabled": false,
+      "autoApprove": ["get_tables", "get_schema", "preview_table", "get_query_history"]
+    },
+    "ontology-server": {
+      "command": "python",
+      "args": ["-m", "src.mcp_servers.ontology_server"],
+      "env": {
+        "PYTHONPATH": "."
+      },
+      "disabled": false,
+      "autoApprove": ["get_ontology_concepts", "search_ontology", "map_term_to_column"]
+    }
+  }
+}
