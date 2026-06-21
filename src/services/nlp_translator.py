@@ -91,6 +91,12 @@ class BedrockClassifier:
                 text = content[0].get("text", "").strip().lower()
                 llm_result = self._parse_classification(text)
                 if llm_result:
+                    # Override LLM when heuristic detects a superlative + count
+                    # pattern that should be "comparison" but LLM says "lookup"
+                    if llm_result == "lookup":
+                        heuristic_result = self._heuristic_classify(query_text)
+                        if heuristic_result == "comparison":
+                            return "comparison"
                     return llm_result
 
             # LLM returned unparseable response — fall through to heuristic
@@ -133,20 +139,53 @@ class BedrockClassifier:
         Returns:
             One of "lookup", "aggregation", "comparison".
         """
+        import re
+
         text = query_text.lower()
 
         comparison_signals = [
             "compare", "comparison", "versus", " vs ", " vs.", "difference",
             "between", "against", "relative to", "compared to", "contrast",
         ]
+        # Dimensional-breakdown patterns: "X by Y", "X per Y", "X for each Y".
+        # These mean "group metric by a dimension" — comparison semantics
+        # (per-group results) rather than a single grand total.
+        breakdown_signals = [
+            " by ", " per ", "for each", " across ", "grouped by", "group by",
+            "broken down", "breakdown by",
+        ]
         aggregation_signals = [
             "total", "sum", "average", "avg", "count", "how many",
             "trend", "over time", "growth", "aggregate", "overall",
-            "breakdown", "distribution", "percentage", "proportion",
+            "distribution", "percentage", "proportion",
             "minimum", "maximum", "median", "mean",
         ]
 
+        # Superlative questions: "which X had the highest/most/lowest Y?"
+        # These require retrieving specific data, not text-only responses.
+        # Must be checked FIRST to prevent fall-through to Bedrock's text_only.
+        superlative_pattern = re.compile(
+            r'\b(which|what)\b.*\b(highest|lowest|most|least|best|worst|biggest|smallest|largest|top|bottom)\b',
+            re.IGNORECASE,
+        )
+        if superlative_pattern.search(text):
+            # If it also has a breakdown dimension ("by"), treat as comparison
+            if any(s in text for s in breakdown_signals):
+                return "comparison"
+            # "Which X has the most Y?" where Y is a count-like noun → comparison
+            # (needs GROUP BY X, COUNT(*) ORDER BY)
+            count_nouns = ["tickets", "employees", "products", "campaigns", "orders",
+                           "certifications", "conversions", "conversion", "items", "records"]
+            if any(noun in text for noun in count_nouns):
+                return "comparison"
+            # Otherwise it's a lookup with sort (find the specific answer)
+            return "lookup"
+
+        # Explicit comparison phrasing takes precedence
         if any(s in text for s in comparison_signals):
+            return "comparison"
+        # Dimensional breakdown ("X by Y") is a per-group comparison
+        if any(s in text for s in breakdown_signals):
             return "comparison"
         if any(s in text for s in aggregation_signals):
             return "aggregation"
@@ -166,9 +205,14 @@ class BedrockClassifier:
 
         return f"""You are a query classifier for a data retrieval system. Classify the following natural language query into exactly one of these types:
 
-- "lookup": The user wants to retrieve specific data points, records, or details about a particular entity.
-- "aggregation": The user wants summarized, computed, or grouped data (totals, averages, counts, trends over time).
-- "comparison": The user wants to compare two or more entities, time periods, or data sets.
+- "lookup": The user wants to retrieve specific data points, find a particular record, or answer a specific factual question (e.g., "which category had the highest return rate", "show me product details", "what is the average order value", "which quarter had the most sales"). This includes questions asking for a specific answer from the data, especially superlative questions ("which X had the highest/most/lowest/least Y").
+- "aggregation": The user wants a single summarized value or grand total across all data (e.g., "total revenue", "how many orders") with NO breakdown by any dimension and NO specific record identification.
+- "comparison": The user wants data broken down, grouped, or split across a dimension. This includes any "X by Y", "X per Y", "X for each Y", or "X across Y" phrasing (e.g., "sales by region", "revenue per quarter", "orders for each category"), as well as explicit comparisons between entities or time periods.
+
+Key rules:
+1. If the query asks for a metric broken down by a dimension (contains "by", "per", "for each", "across", or "grouped by"), classify it as "comparison". Only use "aggregation" when the user wants one overall number with no breakdown.
+2. Never classify a question that asks about actual data as "text_only". If the query references data concepts (revenue, orders, categories, rates, etc.), it requires data retrieval — classify as lookup, aggregation, or comparison.
+3. Superlative questions ("which X had the highest/most/lowest/least Y?") are always "lookup" unless they also contain a breakdown dimension ("by"), in which case they are "comparison".
 
 Ontology context (available data concepts):
 {context_str}
@@ -267,6 +311,11 @@ class NLPTranslator:
             asyncio.to_thread(self._get_history_bias, query_text),
         )
 
+        logger.info(
+            f"Entity resolution for '{query_text[:60]}...': "
+            f"entity_refs={entity_refs}"
+        )
+
         if not entity_refs:
             return NLPError(
                 error_code="NO_ONTOLOGY_MATCH",
@@ -356,27 +405,35 @@ class NLPTranslator:
         """Extract column-level hints from the query by matching against ontology metadata.
 
         When the user's query mentions keywords that map to specific columns
-        (e.g., "remote" → is_remote, "department" → department), this extracts
-        those as hints so the SQL generator can produce targeted queries instead
-        of generic aggregations over all columns.
+        (e.g., "remote" → is_remote, "department" → department, "tier" → customer_tier),
+        this extracts those as hints so the SQL generator can produce targeted queries
+        instead of generic aggregations over all columns.
 
-        Uses three sources of column information from the ontology:
-        1. filter_keywords — user-facing keywords mapped to columns
+        Uses four sources of column information from the ontology:
+        1. filter_keywords — user-facing keywords mapped to columns via filter_mappings
         2. columns — full column definitions with descriptions
         3. categorical_properties — legacy list of categorical column names
+        4. Schema Registry filter_mappings — keyword → target_column resolution
+
+        Also detects the appropriate aggregate function from query text
+        (e.g., "average" → AVG).
 
         Args:
             query_text: The original user query text.
             entity_refs: Resolved entity reference IDs.
 
         Returns:
-            Dict with 'target_columns' list and 'group_by_hint' if relevant
-            column keywords are detected.
+            Dict with 'target_columns' list, 'group_by_hint' if relevant
+            column keywords are detected, and 'aggregate_function' if detected.
         """
         text_lower = query_text.lower()
         hints: dict = {}
         matched_columns: list[str] = []
         matched_filter_keywords: list[str] = []
+        # Track columns resolved from filter_keywords via filter_mappings
+        resolved_group_columns: list[str] = []
+        # Track numeric columns mentioned in the query
+        matched_numeric_columns: list[str] = []
 
         for concept_id in entity_refs:
             concept = self.ontology_store.lookup_concept(concept_id)
@@ -415,7 +472,52 @@ class NLPTranslator:
                         if variant and len(variant) > 2 and variant in text_lower:
                             if col_name not in matched_columns:
                                 matched_columns.append(col_name)
+                            # Track whether this is categorical (grouping) or numeric (aggregation)
+                            if col_type == "numeric":
+                                if col_name not in matched_numeric_columns:
+                                    matched_numeric_columns.append(col_name)
+                            elif col_type == "categorical":
+                                if col_name not in resolved_group_columns:
+                                    resolved_group_columns.append(col_name)
                             break
+
+                # Source 2b: Match column descriptions against query phrases
+                # E.g., "resolution times" matches description "Hours to resolve the ticket"
+                # and "click-through rate" or "ctr" matches description with "clicks"
+                for col_name, col_meta in columns_def.items():
+                    if not isinstance(col_meta, dict):
+                        continue
+                    if col_name in matched_columns:
+                        continue
+                    col_type = col_meta.get("type", "")
+                    if col_type == "identifier":
+                        continue
+                    col_desc = col_meta.get("description", "").lower()
+
+                    # Skip short/generic descriptions
+                    if len(col_desc) < 10:
+                        continue
+
+                    # Common filler words to exclude from overlap checks
+                    desc_stop = {"the", "for", "and", "per", "was", "that", "this",
+                                 "from", "with", "date", "type", "name", "each"}
+                    desc_words = set(col_desc.split()) - desc_stop
+                    query_words = set(text_lower.split()) - desc_stop
+                    # Find significant word overlap (6+ char words only to avoid
+                    # false matches on short common words like "rate", "team", "data")
+                    significant_overlap = [
+                        w for w in query_words
+                        if len(w) >= 6 and w in desc_words
+                    ]
+                    if len(significant_overlap) >= 1:
+                        if col_name not in matched_columns:
+                            matched_columns.append(col_name)
+                            if col_type == "numeric":
+                                if col_name not in matched_numeric_columns:
+                                    matched_numeric_columns.append(col_name)
+                            elif col_type == "categorical":
+                                if col_name not in resolved_group_columns:
+                                    resolved_group_columns.append(col_name)
 
             # Source 3: Legacy categorical_properties list
             categorical_properties = concept.properties.get("categorical_properties", [])
@@ -431,14 +533,130 @@ class NLPTranslator:
                             matched_columns.append(col)
                         break
 
-        if matched_columns:
+        # Source 4: Resolve filter_keywords to actual column names via schema
+        # This handles cases like "tier" → "customer_tier", "team" → "assigned_team"
+        if matched_filter_keywords:
+            from src.services.schema_registry import SCHEMA_MAPPINGS
+            from src.models.redshift_models import ColumnClassification
+            for mapping in SCHEMA_MAPPINGS:
+                # Only check tables that match our entity_refs
+                if mapping.concept_id not in entity_refs:
+                    continue
+                for fm in mapping.filter_mappings:
+                    if fm.keyword.lower() in matched_filter_keywords:
+                        target_col = fm.target_column
+                        # Check if this column is categorical (for grouping)
+                        col_def = next(
+                            (c for c in mapping.columns if c.name == target_col),
+                            None,
+                        )
+                        if col_def and col_def.classification == ColumnClassification.CATEGORICAL:
+                            if target_col not in resolved_group_columns:
+                                resolved_group_columns.append(target_col)
+                        elif col_def and col_def.classification == ColumnClassification.NUMERIC:
+                            if target_col not in matched_numeric_columns:
+                                matched_numeric_columns.append(target_col)
+
+        # Build group_by_hint: prefer resolved_group_columns (filter-mapped categorical cols)
+        # over raw matched_columns (which may include numeric columns)
+        group_by_columns = resolved_group_columns if resolved_group_columns else [
+            col for col in matched_columns
+            if col not in matched_numeric_columns
+        ]
+
+        if matched_columns or resolved_group_columns:
             hints["target_columns"] = matched_columns
-            # If we found categorical columns mentioned in the query,
-            # suggest grouping by them for aggregation queries
-            hints["group_by_hint"] = matched_columns
+            if group_by_columns:
+                hints["group_by_hint"] = group_by_columns
 
         if matched_filter_keywords:
             hints["matched_keywords"] = matched_filter_keywords
+
+        # ── Source 5: Extract filter values from known categorical enum values ──
+        # Scan the ontology for dimension concepts with known enum `values` lists.
+        # If a value is found verbatim in the query, register it as a filter.
+        # This enables WHERE clauses like: WHERE job_level = 'Senior'
+        extracted_filters: dict[str, str] = {}
+        # Value-to-column mapping for known dimensions
+        value_column_map: dict[str, tuple[str, str]] = {
+            # workforce_metrics — job levels
+            "junior": ("job_level", "Junior"),
+            "mid-level": ("job_level", "Mid"),
+            "senior": ("job_level", "Senior"),
+            "staff engineer": ("job_level", "Staff"),
+            "principal engineer": ("job_level", "Principal"),
+            "lead engineer": ("job_level", "Lead"),
+            "director": ("job_level", "Director"),
+            # workforce_metrics — departments (only unambiguous ones)
+            "engineering": ("department", "Engineering"),
+            "data science": ("department", "Data Science"),
+            "devops": ("department", "DevOps"),
+            # workforce_metrics — locations
+            "san francisco": ("office_location", "San Francisco"),
+            "new york": ("office_location", "New York"),
+            "london": ("office_location", "London"),
+            "berlin": ("office_location", "Berlin"),
+            "toronto": ("office_location", "Toronto"),
+            "sydney": ("office_location", "Sydney"),
+            # support_tickets — customer tiers (use full phrases to avoid false positives)
+            "enterprise tier": ("customer_tier", "Enterprise"),
+            "enterprise customers": ("customer_tier", "Enterprise"),
+            "starter tier": ("customer_tier", "Starter"),
+            "professional tier": ("customer_tier", "Professional"),
+            "strategic tier": ("customer_tier", "Strategic"),
+            # support_tickets — priorities
+            "critical priority": ("priority", "Critical"),
+            "critical tickets": ("priority", "Critical"),
+            "critical": ("priority", "Critical"),
+            "high priority": ("priority", "High"),
+            "low priority": ("priority", "Low"),
+            "medium priority": ("priority", "Medium"),
+            # support_tickets — customer tiers (standalone when in support context)
+            "enterprise tier": ("customer_tier", "Enterprise"),
+            "enterprise customers": ("customer_tier", "Enterprise"),
+            "starter tier": ("customer_tier", "Starter"),
+            "professional tier": ("customer_tier", "Professional"),
+            "strategic tier": ("customer_tier", "Strategic"),
+            # marketing_campaigns — status
+            "active campaigns": ("status", "Active"),
+            "completed campaigns": ("status", "Completed"),
+            "paused campaigns": ("status", "Paused"),
+            # marketing_campaigns — channels (use full names)
+            "paid search": ("channel", "Paid Search"),
+            "email newsletter": ("channel", "Email Newsletter"),
+            "content marketing": ("channel", "Content Marketing"),
+            "webinar": ("channel", "Webinar"),
+            "partner referral": ("channel", "Partner Referral"),
+            "social media": ("channel", "Social Media"),
+            # marketing_campaigns — audiences
+            "startup founders": ("target_audience", "Startup Founders"),
+            "data teams": ("target_audience", "Data Teams"),
+            "enterprise buyers": ("target_audience", "Enterprise Buyers"),
+            "small business owners": ("target_audience", "Small Business Owners"),
+        }
+        for val_lower, (col_name, col_value) in value_column_map.items():
+            if val_lower in text_lower:
+                # Only add if this column exists in the resolved tables
+                from src.services.schema_registry import SCHEMA_MAPPINGS
+                for mapping in SCHEMA_MAPPINGS:
+                    if mapping.concept_id not in entity_refs:
+                        continue
+                    if any(c.name == col_name for c in mapping.columns):
+                        extracted_filters[col_name] = col_value
+                        break
+
+        if extracted_filters:
+            hints["filters"] = extracted_filters
+
+        # Detect aggregate function from natural language
+        if "average" in text_lower or "avg" in text_lower or "mean" in text_lower:
+            hints["aggregate_function"] = "AVG"
+        elif "minimum" in text_lower or "lowest" in text_lower:
+            hints["aggregate_function"] = "MIN"
+        elif "maximum" in text_lower or "highest" in text_lower:
+            hints["aggregate_function"] = "MAX"
+        elif any(kw in text_lower for kw in ["percentage", "percent", " rate", "ratio", "proportion", "fcr", "utilization rate"]):
+            hints["aggregate_function"] = "AVG"
 
         return hints
 
@@ -537,6 +755,8 @@ class NLPTranslator:
         detected_source = self._detect_data_source(query_text)
         resolved_ids: list[str] = []
         seen: set[str] = set()
+        domain_votes: dict[str, int] = {}
+        concept_votes: dict[str, int] = {}
 
         for keyword in keywords:
             concepts = self.ontology_store.search_concepts(keyword)
@@ -580,10 +800,95 @@ class NLPTranslator:
 
             # Step 4: Select the best candidate
             best = candidates[0]
+            # Track domain vote for every keyword match (even if concept already seen)
+            best_source = best.properties.get("data_source", "unknown")
+            domain_votes[best_source] = domain_votes.get(best_source, 0) + 1
+
+            # Track per-concept votes: count ALL matching concepts for this keyword
+            # (not just the best). This gives domain-specific keywords like
+            # "conversions" proper weight against ambiguous keywords like "channel".
+            for candidate in candidates:
+                concept_votes[candidate.concept_id] = concept_votes.get(candidate.concept_id, 0) + 1
+
             if best.concept_id not in seen:
                 resolved_ids.append(best.concept_id)
                 seen.add(best.concept_id)
 
+        # Step 5: Domain-consensus filtering
+        # When multiple entities resolve across different data sources,
+        # drop minority-domain outliers if there's a clear majority by
+        # keyword vote count (not unique entity count).
+        resolved_ids = self._apply_domain_consensus(resolved_ids, domain_votes)
+
+        # Step 6: Intra-source concept disambiguation — when multiple concepts
+        # from the same data_source are resolved, keep only the one with the
+        # most keyword votes to avoid routing to the wrong table.
+        if len(resolved_ids) > 1:
+            source_groups: dict[str, list[str]] = {}
+            for cid in resolved_ids:
+                concept = self.ontology_store.lookup_concept(cid)
+                if concept:
+                    src = concept.properties.get("data_source", "unknown")
+                    source_groups.setdefault(src, []).append(cid)
+
+            deduped_ids: list[str] = []
+            for src, cids in source_groups.items():
+                if len(cids) == 1:
+                    deduped_ids.extend(cids)
+                else:
+                    # Keep only the concept with the most keyword votes
+                    best_cid = max(cids, key=lambda c: concept_votes.get(c, 0))
+                    deduped_ids.append(best_cid)
+            resolved_ids = deduped_ids
+
+        return resolved_ids
+
+    def _apply_domain_consensus(
+        self, resolved_ids: list[str], domain_votes: dict[str, int]
+    ) -> list[str]:
+        """Filter resolved entities by domain consensus using keyword vote counts.
+
+        When keywords in a query overwhelmingly point to one data_source
+        (strict majority of keyword votes), entities from minority data
+        sources are dropped. This handles ambiguous keywords like "revenue"
+        that accidentally pull in an unrelated domain when all other
+        keywords clearly agree on one.
+
+        Args:
+            resolved_ids: List of resolved concept IDs.
+            domain_votes: Count of keyword matches per data_source.
+
+        Returns:
+            Filtered list with minority-domain outliers removed.
+        """
+        if len(resolved_ids) <= 1:
+            return resolved_ids
+
+        # If no vote data, keep all
+        if not domain_votes:
+            return resolved_ids
+
+        # Find the majority data_source by vote count
+        total_votes = sum(domain_votes.values())
+        for source, votes in sorted(domain_votes.items(), key=lambda x: -x[1]):
+            if votes > total_votes / 2:
+                # This source has strict majority of keyword votes
+                # Keep only entities belonging to this source
+                majority_ids = []
+                for concept_id in resolved_ids:
+                    concept = self.ontology_store.lookup_concept(concept_id)
+                    if concept and concept.properties.get("data_source") == source:
+                        majority_ids.append(concept_id)
+
+                if majority_ids:
+                    logger.info(
+                        f"Domain consensus ({source}: {votes}/{total_votes} votes): "
+                        f"keeping {majority_ids}, dropping minority entities"
+                    )
+                    return majority_ids
+                break
+
+        # No strict majority — keep all (legitimate cross-domain query)
         return resolved_ids
 
     def _rank_candidates(self, candidates: list) -> list:
@@ -634,14 +939,14 @@ class NLPTranslator:
         """Apply agent-aware tie-breaking to a list of candidates.
 
         Prefer concepts whose agent_id matches a currently registered agent.
-        Among registered agents, prefer Redshift-backed concepts over legacy
-        JSON/CSV concepts.
+        Among registered agents, preserve ontology store ordering (stable sort)
+        rather than blindly preferring one data source over another.
 
         Args:
             candidates: List of OntologyConcept objects (all with same base score).
 
         Returns:
-            Re-ranked list with registered agents first, then Redshift preference.
+            Re-ranked list with registered agents first, then stable ordering.
         """
         if not candidates:
             return candidates
@@ -654,16 +959,13 @@ class NLPTranslator:
             
             Priority:
             1. Registered agent (rank 0) vs unregistered (rank 1)
-            2. Redshift data source (rank 0) vs legacy (rank 1)
-            3. Original position (to maintain stable sorting)
+            2. Original position preserved (stable sort) — no data source preference
             """
             agent_id = c.properties.get("agent_id", "")
-            data_source = c.properties.get("data_source", "")
             
             is_registered = 0 if agent_id in registered_ids else 1
-            is_redshift = 0 if data_source == "redshift" else 1
             
-            return (is_registered, is_redshift)
+            return (is_registered,)
 
         # Sort by rank score, then preserve original order for ties (stable sort)
         return sorted(candidates, key=candidate_rank)
@@ -713,6 +1015,7 @@ class NLPTranslator:
             "it", "its", "i", "me", "my", "we", "our", "you", "your",
             "he", "him", "his", "she", "her", "they", "them", "their",
             "show", "tell", "give", "get", "find", "list", "display",
+            "compare", "versus", "across", "per",
             "many", "much",
         }
 
@@ -808,6 +1111,15 @@ class NLPTranslator:
             "campaigns", "marketing", "workforce", "salary", "salaries",
             "utilization", "engagement", "training", "certifications",
             "budget", "spend", "impressions", "clicks", "conversions",
+            # Support ticket specific
+            "team", "teams", "priority", "tier", "tiers", "channel", "channels",
+            "rate", "rates", "fcr", "first-contact", "unresolved", "resolved",
+            # Workforce specific
+            "headcount", "hiring", "hired", "bonus", "location", "locations",
+            "certification", "level", "levels", "onsite", "on-site",
+            # Marketing specific
+            "roi", "ctr", "click-through", "conversion", "audience", "audiences",
+            "spend", "attributed", "launch",
         }
 
         for keyword in keywords:

@@ -65,6 +65,11 @@ def main():
             "s3_key": f"{S3_DATA_SOURCES_PREFIX}product_catalog.csv",
             "content_type": "text/csv",
         },
+        {
+            "local": "data/sources/mcp/financial_data.json",
+            "s3_key": f"{S3_DATA_SOURCES_PREFIX}mcp/financial_data.json",
+            "content_type": "application/json",
+        },
     ]
 
     for upload in uploads:

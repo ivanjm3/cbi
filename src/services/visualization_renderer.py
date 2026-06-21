@@ -449,9 +449,14 @@ def _guess_chart_type(
 
     # --- Part-of-whole signals ---
     composition_keywords = {"category", "type", "segment", "group", "class", "kind", "status", "region"}
+    # Rate/average columns don't represent parts-of-a-whole — use bar instead
+    metric_col_name = columns[1].lower() if len(columns) > 1 else ""
+    is_rate_metric = any(kw in metric_col_name for kw in
+                         ("rate", "pct", "percent", "score", "avg_", "avg ", "ratio",
+                          "resolution", "utilization", "engagement", "satisfaction"))
     is_composition = (
-        data_type in ("comparison",)
-        or any(k in first_col for k in composition_keywords)
+        not is_rate_metric
+        and (data_type in ("comparison",) or any(k in first_col for k in composition_keywords))
     )
     if is_composition and numeric_count == 1:
         return "doughnut" if label_count <= 6 else "polararea"
@@ -1061,13 +1066,40 @@ class VisualizationRenderer:
                 return [], []
             group_col = payload.get("group_by", "group")
             sample = next(iter(groups.values()), {})
-            numeric_keys = [k for k, v in sample.items() if isinstance(v, dict) and "sum" in v]
-            columns = [group_col] + [f"{k}_sum" for k in numeric_keys] + ["count"]
-            rows = []
-            for name, data in groups.items():
-                row = [name] + [data.get(k, {}).get("sum", 0) for k in numeric_keys]
-                row.append(data.get("count", 0))
-                rows.append(row)
+
+            # Support two group-value formats:
+            # 1. Nested stats dict:  {"col": {"sum": N, "avg": N, "count": N}}
+            # 2. Plain scalar value: {"col": 0.65}  (raw from SQL aggregate)
+            # Additionally, "count" is a special key that always maps to the row count.
+            nested_keys = [k for k, v in sample.items()
+                           if k != "count" and isinstance(v, dict) and "sum" in v]
+            scalar_keys = [k for k, v in sample.items()
+                           if k != "count" and isinstance(v, (int, float)) and not isinstance(v, bool)]
+            has_count = "count" in sample
+
+            if nested_keys:
+                # Format 1: nested stats dicts (legacy format from older pipeline)
+                columns = [group_col] + [f"{k}_sum" for k in nested_keys] + ["count"]
+                rows = []
+                for name, data in groups.items():
+                    row = [name] + [data.get(k, {}).get("sum", 0) for k in nested_keys]
+                    row.append(data.get("count", 0))
+                    rows.append(row)
+            elif scalar_keys:
+                # Format 2: plain scalar values (e.g. AVG(col) result per group)
+                count_col = ["count"] if has_count else []
+                columns = [group_col] + scalar_keys + count_col
+                rows = []
+                for name, data in groups.items():
+                    row = [name] + [data.get(k, 0) if data.get(k) is not None else 0
+                                    for k in scalar_keys]
+                    if has_count:
+                        row.append(data.get("count", 0))
+                    rows.append(row)
+            else:
+                # Format 3: only a "count" key — pure count per group
+                columns = [group_col, "count"]
+                rows = [[name, data.get("count", 0)] for name, data in groups.items()]
             return columns, rows
 
         if "sources" in payload:
@@ -1126,13 +1158,21 @@ class VisualizationRenderer:
             groups = payload["groups"]
             parts.append(f"Comparison across {len(groups)} groups ({row_count} total records):")
             for group_name, group_data in groups.items():
-                count = group_data.get("count", 0)
-                numeric_summary = ", ".join(
-                    f"{k}={v.get('sum', 'N/A')}"
-                    for k, v in group_data.items()
-                    if isinstance(v, dict) and "sum" in v
-                )
-                parts.append(f"  • {group_name} ({count} items): {numeric_summary}")
+                numeric_summary_parts = []
+                for k, v in group_data.items():
+                    if k == "count":
+                        continue
+                    if isinstance(v, dict) and "sum" in v:
+                        # Nested stats format
+                        numeric_summary_parts.append(f"{k}={v.get('sum', 'N/A')}")
+                    elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                        # Plain scalar format (e.g. AVG result)
+                        numeric_summary_parts.append(f"{k}={round(v, 4) if isinstance(v, float) else v}")
+                numeric_summary = ", ".join(numeric_summary_parts)
+                # Only show count if it exists and is meaningful
+                count = group_data.get("count")
+                count_str = f" ({count} items)" if count else ""
+                parts.append(f"  • {group_name}{count_str}: {numeric_summary}")
         elif data_type == "tabular":
             parts.append(
                 f"Tabular data with {row_count} rows and {len(payload.get('columns', []))} columns."

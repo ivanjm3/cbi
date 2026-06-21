@@ -10,6 +10,11 @@
 #   - AppRunnerECRAccessRole (App Runner ECR pull)
 #   - talk2data-codebuild-role (CodeBuild service role)
 #
+# Services deployed:
+#   - NLP Translator (8001), Orchestrator Hub (8002), Guardrail (8003)
+#   - Visualization Renderer (8004), Spoke Agent (8010), Redshift Spoke (8011)
+#   - MCP Adapter Layer (8012)
+#
 # Usage:
 #   bash deploy/deploy.sh                  # Full first-time deploy
 #   bash deploy/deploy.sh --build-backend  # Rebuild backend via CodeBuild
@@ -41,6 +46,24 @@ CODEBUILD_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/talk2data-codebuild-role"
 S3_DATA_BUCKET="visualization-poc-bucket"
 GUARDRAIL_ID="unf4323uxnff"
 
+# MCP Adapter Feature Flags (set to "true" to enable MCP routing)
+USE_MCP_ADAPTER="${USE_MCP_ADAPTER:-false}"
+USE_MCP_REDSHIFT="${USE_MCP_REDSHIFT:-false}"
+USE_MCP_S3="${USE_MCP_S3:-false}"
+
+# MCP Server Configuration (streamable-http mode for production)
+MCP_ADAPTER_REDSHIFT_TRANSPORT="${MCP_ADAPTER_REDSHIFT_TRANSPORT:-stdio}"
+MCP_ADAPTER_REDSHIFT_HOST="${MCP_ADAPTER_REDSHIFT_HOST:-}"
+MCP_ADAPTER_REDSHIFT_PORT="${MCP_ADAPTER_REDSHIFT_PORT:-}"
+MCP_ADAPTER_REDSHIFT_COMMAND="${MCP_ADAPTER_REDSHIFT_COMMAND:-}"
+MCP_ADAPTER_REDSHIFT_TIMEOUT="${MCP_ADAPTER_REDSHIFT_TIMEOUT:-30}"
+
+MCP_ADAPTER_S3_TRANSPORT="${MCP_ADAPTER_S3_TRANSPORT:-stdio}"
+MCP_ADAPTER_S3_HOST="${MCP_ADAPTER_S3_HOST:-}"
+MCP_ADAPTER_S3_PORT="${MCP_ADAPTER_S3_PORT:-}"
+MCP_ADAPTER_S3_COMMAND="${MCP_ADAPTER_S3_COMMAND:-}"
+MCP_ADAPTER_S3_TIMEOUT="${MCP_ADAPTER_S3_TIMEOUT:-30}"
+
 # SSL flag for corporate proxy
 SSL="--no-verify-ssl"
 
@@ -56,12 +79,14 @@ while [[ $# -gt 0 ]]; do
     --build-frontend) DO_INFRA=false; DO_BUILD_FRONTEND=true; shift ;;
     --build-all)      DO_INFRA=false; DO_BUILD_BACKEND=true; DO_BUILD_FRONTEND=true; shift ;;
     --skip-infra)     DO_INFRA=false; shift ;;
+    --enable-mcp)     USE_MCP_ADAPTER="true"; USE_MCP_REDSHIFT="true"; USE_MCP_S3="true"; shift ;;
     --help)
       echo "Usage: bash deploy/deploy.sh [OPTIONS]"
       echo "  (no flags)           Full first-time deploy"
       echo "  --build-backend      Rebuild backend (CodeBuild → ECR → App Runner)"
       echo "  --build-frontend     Rebuild frontend (CodeBuild → S3)"
       echo "  --build-all          Both"
+      echo "  --enable-mcp         Enable MCP adapter routing (sets all MCP flags to true)"
       exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -72,6 +97,7 @@ echo "  Conversational BI — AWS Deployment (CLI-only)"
 echo "============================================================"
 echo "  Account:   $ACCOUNT_ID"
 echo "  Region:    $REGION"
+echo "  MCP Mode:  $([ "$USE_MCP_ADAPTER" = "true" ] && echo "ENABLED" || echo "disabled (legacy agents)")"
 echo "============================================================"
 echo ""
 
@@ -127,19 +153,23 @@ IMAGE_COUNT=$(aws ecr describe-images --repository-name "$ECR_REPO" \
 if [ "$IMAGE_COUNT" = "0" ] || [ "$IMAGE_COUNT" = "None" ]; then
   echo "  ECR is empty — will use CodeBuild to build image (no local Docker needed)"
   echo "  → Packaging backend source..."
-  TMPFILE="/tmp/backend-source-$$.zip"
+  TMPFILE="/tmp/backend-source-$.zip"
   # Use tar+gzip as fallback if zip not available
   if command -v zip &> /dev/null; then
     zip -qr "$TMPFILE" \
-      src/ data/ frontend/ deploy/Dockerfile deploy/buildspec-backend.yaml pyproject.toml run_all.py .dockerignore \
-      -x "*/__pycache__/*" "*/.pytest_cache/*" "frontend/node_modules/*" "frontend/dist/*" 2>/dev/null
+      src/ data/ mcps/ frontend/ deploy/Dockerfile deploy/buildspec-backend.yaml \
+      pyproject.toml run_all.py run_all_with_mcp_prod.py .dockerignore \
+      -x "*/__pycache__/*" "*/.pytest_cache/*" "frontend/node_modules/*" "frontend/dist/*" \
+      "mcps/*/__pycache__/*" "mcps/*/dist/*" 2>/dev/null
   else
     # zip not available — install it
     echo "  (Installing zip...)"
     sudo apt-get update -qq && sudo apt-get install -y -qq zip > /dev/null 2>&1 || true
     zip -qr "$TMPFILE" \
-      src/ data/ frontend/ deploy/Dockerfile deploy/buildspec-backend.yaml pyproject.toml run_all.py .dockerignore \
-      -x "*/__pycache__/*" "*/.pytest_cache/*" "frontend/node_modules/*" "frontend/dist/*" 2>/dev/null
+      src/ data/ mcps/ frontend/ deploy/Dockerfile deploy/buildspec-backend.yaml \
+      pyproject.toml run_all.py run_all_with_mcp_prod.py .dockerignore \
+      -x "*/__pycache__/*" "*/.pytest_cache/*" "frontend/node_modules/*" "frontend/dist/*" \
+      "mcps/*/__pycache__/*" "mcps/*/dist/*" 2>/dev/null
   fi
   echo "  → Uploading to S3..."
   aws s3 cp "$TMPFILE" "s3://${ARTIFACT_BUCKET}/backend-source.zip" \
@@ -189,7 +219,20 @@ else
             \"AWS_REGION\": \"us-east-1\",
             \"S3_BUCKET\": \"${S3_DATA_BUCKET}\",
             \"GUARDRAIL_ID\": \"${GUARDRAIL_ID}\",
-            \"ENVIRONMENT\": \"prod\"
+            \"ENVIRONMENT\": \"prod\",
+            \"USE_MCP_ADAPTER\": \"${USE_MCP_ADAPTER}\",
+            \"USE_MCP_REDSHIFT\": \"${USE_MCP_REDSHIFT}\",
+            \"USE_MCP_S3\": \"${USE_MCP_S3}\",
+            \"MCP_ADAPTER_REDSHIFT_TRANSPORT\": \"${MCP_ADAPTER_REDSHIFT_TRANSPORT}\",
+            \"MCP_ADAPTER_REDSHIFT_HOST\": \"${MCP_ADAPTER_REDSHIFT_HOST}\",
+            \"MCP_ADAPTER_REDSHIFT_PORT\": \"${MCP_ADAPTER_REDSHIFT_PORT}\",
+            \"MCP_ADAPTER_REDSHIFT_COMMAND\": \"${MCP_ADAPTER_REDSHIFT_COMMAND}\",
+            \"MCP_ADAPTER_REDSHIFT_TIMEOUT\": \"${MCP_ADAPTER_REDSHIFT_TIMEOUT}\",
+            \"MCP_ADAPTER_S3_TRANSPORT\": \"${MCP_ADAPTER_S3_TRANSPORT}\",
+            \"MCP_ADAPTER_S3_HOST\": \"${MCP_ADAPTER_S3_HOST}\",
+            \"MCP_ADAPTER_S3_PORT\": \"${MCP_ADAPTER_S3_PORT}\",
+            \"MCP_ADAPTER_S3_COMMAND\": \"${MCP_ADAPTER_S3_COMMAND}\",
+            \"MCP_ADAPTER_S3_TIMEOUT\": \"${MCP_ADAPTER_S3_TIMEOUT}\"
           }
         }
       }
@@ -290,10 +333,12 @@ if [ "$DO_BUILD_BACKEND" = true ]; then
   ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}"
 
   echo "  → Packaging source..."
-  TMPFILE="/tmp/backend-source-$$.zip"
+  TMPFILE="/tmp/backend-source-$.zip"
   zip -qr "$TMPFILE" \
-    src/ data/ frontend/ deploy/Dockerfile deploy/buildspec-backend.yaml pyproject.toml run_all.py .dockerignore \
-    -x "*/__pycache__/*" "*/.pytest_cache/*" "frontend/node_modules/*" "frontend/dist/*" 2>/dev/null
+    src/ data/ mcps/ frontend/ deploy/Dockerfile deploy/buildspec-backend.yaml \
+    pyproject.toml run_all.py run_all_with_mcp_prod.py .dockerignore \
+    -x "*/__pycache__/*" "*/.pytest_cache/*" "frontend/node_modules/*" "frontend/dist/*" \
+    "mcps/*/__pycache__/*" "mcps/*/dist/*" "mcps/*/.pytest_cache/*" 2>/dev/null
 
   echo "  → Uploading to S3..."
   aws s3 cp "$TMPFILE" "s3://${ARTIFACT_BUCKET}/backend-source.zip" \
@@ -322,7 +367,7 @@ if [ "$DO_BUILD_FRONTEND" = true ]; then
   echo ""
 
   echo "  → Packaging source..."
-  TMPFILE="/tmp/frontend-source-$$.zip"
+  TMPFILE="/tmp/frontend-source-$.zip"
   zip -qr "$TMPFILE" \
     frontend/ deploy/buildspec-frontend.yaml \
     -x "frontend/node_modules/*" "frontend/dist/*" 2>/dev/null
@@ -354,5 +399,9 @@ echo "  Subsequent deploys:"
 echo "    bash deploy/deploy.sh --build-backend"
 echo "    bash deploy/deploy.sh --build-frontend"
 echo "    bash deploy/deploy.sh --build-all"
+echo ""
+echo "  Enable MCP routing:"
+echo "    bash deploy/deploy.sh --build-backend --enable-mcp"
+echo "    # Or set env vars: USE_MCP_ADAPTER=true, USE_MCP_REDSHIFT=true, USE_MCP_S3=true"
 echo ""
 echo "============================================================"

@@ -1,5 +1,6 @@
 # CodeBuild buildspec for backend — Docker build + ECR push
 # App Runner auto-deploys when a new image lands in ECR.
+# Includes MCP Adapter Layer (port 8012) in the container.
 version: 0.2
 
 phases:
@@ -18,6 +19,8 @@ phases:
       - "echo Listing build context..."
       - "ls -la"
       - "ls -la deploy/"
+      - "ls -la src/agents/mcp_adapter/ 2>/dev/null || echo 'No MCP adapter dir'"
+      - "ls -la mcps/ 2>/dev/null || echo 'No MCP servers dir'"
       - "docker build -t $IMAGE_URI -f deploy/Dockerfile ."
       - "if [ -n \"$IMAGE_URI_COMMIT\" ]; then docker tag $IMAGE_URI $IMAGE_URI_COMMIT; fi"
 

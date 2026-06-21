@@ -1,5 +1,5 @@
 # Dockerfile for the Conversational BI backend + frontend
-# Builds the React frontend, then runs all 5 FastAPI services.
+# Builds the React frontend, then runs all FastAPI services including MCP Adapter.
 # Frontend is served from the same container via FastAPI StaticFiles.
 
 # Stage 1: Build frontend
@@ -33,6 +33,16 @@ RUN pip install --no-cache-dir -e . || \
     "boto3>=1.35.0" && \
     pip install --no-cache-dir "strands-agents>=0.1.0" || true
 
+# Install MCP SDK and servers for the adapter layer (stdio transport in-container)
+RUN pip install --no-cache-dir "mcp>=1.0.0" || true
+COPY mcps/ ./mcps/
+# Install redshift_connector required by mcp-redshift's connection pool
+RUN pip install --no-cache-dir "redshift_connector>=2.1.0" 2>/dev/null || true
+RUN pip install --no-cache-dir -e ./mcps/mcp-redshift 2>/dev/null || true
+RUN pip install --no-cache-dir -e ./mcps/mcp-s3 2>/dev/null || true
+# Force consistent botocore version after all installs to avoid DocumentModifiedShape error
+RUN pip install --no-cache-dir --force-reinstall "botocore>=1.35.0,<2.0.0" 2>/dev/null || true
+
 # Copy frontend build output from stage 1
 COPY --from=frontend-build /frontend/dist ./frontend/dist/
 
@@ -40,10 +50,11 @@ COPY --from=frontend-build /frontend/dist ./frontend/dist/
 COPY data/ ./data/
 COPY run_all.py ./
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
+# Health check — generous start period so NLP on 8001 comes up first
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=180s \
     CMD curl -f http://localhost:8001/health || exit 1
 
 EXPOSE 8001
 
+# Use the proven entrypoint (legacy + MCP adapter via feature flags)
 CMD ["python", "run_all.py"]

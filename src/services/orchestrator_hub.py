@@ -34,6 +34,7 @@ from src.models.shared import (
     StructuredIntent,
 )
 from src.services.cancellation_registry import CancellationRegistry
+from src.services.feature_flag_router import FeatureFlagRouter
 from src.services.ontology_store import OntologyStore
 from src.services.result_cache import ResultCache
 
@@ -243,6 +244,7 @@ class OrchestratorHub:
         agent_timeout: float = AGENT_TIMEOUT_DEFAULT,
         model_id: str | None = None,
         cancellation_registry: CancellationRegistry | None = None,
+        feature_flag_router: FeatureFlagRouter | None = None,
     ):
         """Initialize the Orchestrator Hub.
 
@@ -255,6 +257,8 @@ class OrchestratorHub:
             model_id: Optional Bedrock model ID override for the Strands Agent.
             cancellation_registry: Optional registry for cooperative cancellation.
                 Defaults to a new CancellationRegistry instance.
+            feature_flag_router: Optional router for MCP/legacy routing decisions.
+                Defaults to a new FeatureFlagRouter instance.
         """
         global _hub_instance
         _hub_instance = self
@@ -271,6 +275,8 @@ class OrchestratorHub:
         self._current_correlation_id: str = ""
         # Cancellation registry for cooperative query cancellation
         self._cancellation_registry = cancellation_registry or CancellationRegistry()
+        # Feature flag router for MCP/legacy routing decisions
+        self._feature_flag_router = feature_flag_router or FeatureFlagRouter()
 
         # Initialize the Strands Agent with orchestrator tools
         from botocore.config import Config as BotoConfig
@@ -325,6 +331,23 @@ class OrchestratorHub:
                 query_id=intent.query_id,
             )
 
+        # Guard: reject intents with empty entity_refs (NLP translation failed to resolve)
+        if not intent.entity_refs:
+            logger.warning(
+                json.dumps({
+                    "service_name": "orchestrator_hub",
+                    "operation": "process_intent",
+                    "event": "empty_entity_refs",
+                    "query_id": str(intent.query_id),
+                    "correlation_id": correlation_id,
+                })
+            )
+            return OrchestratorError(
+                error_type="NO_AGENTS_RESOLVED",
+                message="No entity_refs provided in the structured intent — cannot route query to any agent.",
+                query_id=intent.query_id,
+            )
+
         # Step 1: Check cache (Requirement 4.1, 4.2)
         cache_key = ResultCache.generate_key(intent)
         cached = self.result_cache.get(cache_key)
@@ -352,9 +375,16 @@ class OrchestratorHub:
             )
 
         # Step 3: Choose dispatch strategy based on query complexity
-        # AGENTIC: For multi-agent queries, let the LLM reason about routing.
-        # DIRECT: For single-agent queries, skip the LLM for speed.
-        if len(resolved_agents) > 1 and intent.query_type == "comparison":
+        # AGENTIC: For multi-domain queries where entity_refs span genuinely
+        #   different data sources (e.g., S3 + Redshift) and require merging.
+        # DIRECT: For single-domain queries or when multiple agents cover the
+        #   same entity_refs (e.g., legacy + MCP adapter for same data).
+        unique_data_sources = set()
+        for agent in resolved_agents:
+            unique_data_sources.add(agent.data_source)
+        is_multi_domain = len(unique_data_sources) > 1
+
+        if is_multi_domain and intent.query_type == "comparison":
             # Multi-domain comparison — use agentic dispatch
             logger.info(json.dumps({
                 "service_name": "orchestrator_hub",
@@ -365,7 +395,7 @@ class OrchestratorHub:
             }))
             return self._agent_dispatch(intent, resolved_agents, cache_key)
         else:
-            # Single-domain or simple query — fast direct dispatch
+            # Single-domain or same-domain redundant agents — fast direct dispatch
             return self._direct_dispatch(intent, resolved_agents, cache_key)
 
     def register_cancellation(self, correlation_id: str) -> None:
@@ -483,6 +513,8 @@ class OrchestratorHub:
 
         Entity_ref matching already identifies the correct agents.
         Checks cancellation registry before each agent dispatch.
+        When MCP feature flags are enabled, routes to the MCP Adapter
+        Layer instead of legacy spoke agents.
 
         Args:
             intent: The structured intent to dispatch.
@@ -498,6 +530,9 @@ class OrchestratorHub:
         correlation_id = self._current_correlation_id
         intent_json = intent.model_dump_json()
 
+        # Apply feature flag routing: resolve effective agent_id and endpoint
+        effective_agents = self._apply_feature_flags(resolved_agents)
+
         # Dispatch to resolved agents, checking cancellation before each
         import asyncio
         import concurrent.futures
@@ -506,7 +541,7 @@ class OrchestratorHub:
             loop = asyncio.get_running_loop()
             # Already in an async context — use ThreadPoolExecutor
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                for agent in resolved_agents:
+                for agent_id, endpoint_url in effective_agents:
                     # Check cancellation before each dispatch
                     if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
                         logger.info(
@@ -516,20 +551,20 @@ class OrchestratorHub:
                                 "event": "cancelled_mid_dispatch",
                                 "query_id": str(intent.query_id),
                                 "correlation_id": correlation_id,
-                                "skipped_agent": agent.agent_id,
+                                "skipped_agent": agent_id,
                             })
                         )
                         break
                     future = pool.submit(
                         dispatch_to_spoke_agent,
-                        agent_id=agent.agent_id,
-                        endpoint_url=agent.endpoint_url,
+                        agent_id=agent_id,
+                        endpoint_url=endpoint_url,
                         intent_json=intent_json,
                     )
                     future.result()  # Wait for each dispatch to complete before checking cancellation
         except RuntimeError:
             # No running loop — use sequential dispatch with cancellation checks
-            for agent in resolved_agents:
+            for agent_id, endpoint_url in effective_agents:
                 if correlation_id and self._cancellation_registry.is_cancelled(correlation_id):
                     logger.info(
                         json.dumps({
@@ -538,13 +573,13 @@ class OrchestratorHub:
                             "event": "cancelled_mid_dispatch",
                             "query_id": str(intent.query_id),
                             "correlation_id": correlation_id,
-                            "skipped_agent": agent.agent_id,
+                            "skipped_agent": agent_id,
                         })
                     )
                     break
                 dispatch_to_spoke_agent(
-                    agent_id=agent.agent_id,
-                    endpoint_url=agent.endpoint_url,
+                    agent_id=agent_id,
+                    endpoint_url=endpoint_url,
                     intent_json=intent_json,
                 )
 
@@ -758,3 +793,80 @@ class OrchestratorHub:
                 resolved.append(agent)
 
         return resolved
+
+    # MCP Adapter endpoint mapping (data_source -> (mcp_agent_id, mcp_endpoint))
+    _MCP_ADAPTER_MAP: dict[str, tuple[str, str]] = {
+        "redshift": ("mcp-redshift-adapter", "http://localhost:8012"),
+        "s3": ("mcp-s3-adapter", "http://localhost:8012"),
+        "multi-source": ("mcp-s3-adapter", "http://localhost:8012"),
+    }
+
+    # Agent IDs that are MCP adapters (skip them in legacy routing)
+    _MCP_AGENT_IDS = {"mcp-redshift-adapter", "mcp-s3-adapter"}
+
+    def _apply_feature_flags(
+        self, resolved_agents: list[AgentRegistration]
+    ) -> list[tuple[str, str]]:
+        """Apply feature flag routing to determine effective agent targets.
+
+        For each resolved agent, checks whether MCP routing is enabled for
+        that agent's data_source. If enabled, swaps to the MCP adapter
+        endpoint. Otherwise, uses the legacy agent endpoint.
+
+        Deduplicates results to avoid dispatching to the same agent twice
+        when both legacy and MCP adapter agents are registered.
+
+        Args:
+            resolved_agents: List of resolved agent registrations.
+
+        Returns:
+            List of (agent_id, endpoint_url) tuples with MCP routing applied.
+        """
+        effective: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for agent in resolved_agents:
+            data_source = agent.data_source
+
+            # If MCP is enabled for this data_source
+            if self._feature_flag_router.should_use_mcp(data_source):
+                # Skip legacy agents — they'll be replaced by MCP
+                if agent.agent_id not in self._MCP_AGENT_IDS:
+                    mcp_info = self._MCP_ADAPTER_MAP.get(data_source)
+                    if mcp_info:
+                        mcp_agent_id, mcp_endpoint = mcp_info
+                        key = (mcp_agent_id, mcp_endpoint)
+                        if key not in seen:
+                            effective.append(key)
+                            seen.add(key)
+                            logger.info(
+                                json.dumps({
+                                    "service_name": "orchestrator_hub",
+                                    "operation": "_apply_feature_flags",
+                                    "event": "mcp_routing",
+                                    "original_agent": agent.agent_id,
+                                    "mcp_agent": mcp_agent_id,
+                                    "data_source": data_source,
+                                })
+                            )
+                    else:
+                        # Unknown data_source — use legacy
+                        key = (agent.agent_id, agent.endpoint_url)
+                        if key not in seen:
+                            effective.append(key)
+                            seen.add(key)
+                else:
+                    # Already an MCP adapter agent — include it directly
+                    key = (agent.agent_id, agent.endpoint_url)
+                    if key not in seen:
+                        effective.append(key)
+                        seen.add(key)
+            else:
+                # MCP disabled — use legacy, skip MCP adapter agents
+                if agent.agent_id not in self._MCP_AGENT_IDS:
+                    key = (agent.agent_id, agent.endpoint_url)
+                    if key not in seen:
+                        effective.append(key)
+                        seen.add(key)
+
+        return effective

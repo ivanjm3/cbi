@@ -3,7 +3,6 @@
 Resolves entity_refs via the Schema Registry, selects a query strategy based
 on query_type, and produces parameterized SQL that is safe from injection.
 """
-
 import logging
 from typing import Any
 
@@ -71,7 +70,6 @@ class SQLGenerator:
         first_table = resolved[0][1]
 
         # For multi-table cases, filter to only entity_refs belonging to first table
-        # (all resolved refs pointing to the same table)
         table_refs = [ref for ref, mapping in resolved if mapping.table_name == first_table.table_name]
 
         logger.info(
@@ -97,24 +95,80 @@ class SQLGenerator:
     def _generate_lookup(
         self, table: TableMapping, intent: StructuredIntent
     ) -> GeneratedQuery:
-        """Generate a lookup query: SELECT all columns WHERE filters LIMIT 1000.
+        """Generate a lookup query: SELECT all columns WHERE filters LIMIT N.
+
+        If target_columns are specified in routing_metadata, only those columns
+        are selected (plus all categorical columns for context). Otherwise all
+        columns are selected.
+
+        Supports "top N" and "bottom N" queries by detecting superlative keywords
+        and adding ORDER BY on the most relevant numeric column.
 
         Args:
             table: The resolved table mapping.
             intent: The structured intent with routing_metadata filters.
 
         Returns:
-            A GeneratedQuery with parameterized SELECT ... WHERE ... LIMIT 1000.
+            A GeneratedQuery with parameterized SELECT ... WHERE ... LIMIT N.
         """
-        all_columns = [col.name for col in table.columns]
-        select_clause = ", ".join(all_columns)
+        import re
+
+        target_columns: list[str] = intent.routing_metadata.get("target_columns", [])
+        query_text = intent.routing_metadata.get("query_text", "").lower()
+
+        # FIX #3: If the NLP extracted specific target columns, honour them.
+        # Always include all categorical columns so the rows are identifiable.
+        if target_columns:
+            categorical_cols = self._schema_registry.get_categorical_columns(table.table_name)
+            cat_names = [col.name for col in categorical_cols]
+            all_col_names = [col.name for col in table.columns]
+            # Columns in declared order: categoricals first, then requested targets
+            selected = list(cat_names)
+            for tc in target_columns:
+                if tc in all_col_names and tc not in selected:
+                    selected.append(tc)
+            select_clause = ", ".join(selected) if selected else "*"
+        else:
+            all_columns = [col.name for col in table.columns]
+            select_clause = ", ".join(all_columns)
 
         where_parts, parameters = self._build_where_clause(table, intent)
+        where_sql = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
-        if where_parts:
-            sql = f"SELECT {select_clause} FROM {table.table_name} WHERE {' AND '.join(where_parts)} LIMIT 1000"
-        else:
-            sql = f"SELECT {select_clause} FROM {table.table_name} LIMIT 1000"
+        # Detect "top N" / "bottom N" patterns for ORDER BY + LIMIT
+        order_clause = ""
+        limit_val = 1000  # Default
+        top_match = re.search(r'\b(top|best|highest|largest|most)\s*(\d+)?\b', query_text)
+        bottom_match = re.search(r'\b(bottom|worst|lowest|smallest|least)\s*(\d+)?\b', query_text)
+
+        if top_match or bottom_match:
+            # Determine sort direction and limit
+            if top_match:
+                direction = "DESC"
+                n_str = top_match.group(2)
+            else:
+                direction = "ASC"
+                n_str = bottom_match.group(2)
+            limit_val = int(n_str) if n_str else 10
+
+            # Determine ORDER BY column — use targeted numeric cols or first numeric
+            numeric_cols = self._schema_registry.get_numeric_columns(table.table_name)
+            matched_keywords = intent.routing_metadata.get("matched_keywords", [])
+            order_col = None
+
+            # Try to find a numeric column mentioned in the query
+            for col in numeric_cols:
+                if col.name in target_columns or any(kw in col.name for kw in matched_keywords if len(kw) > 3):
+                    order_col = col.name
+                    break
+
+            if not order_col and numeric_cols:
+                order_col = numeric_cols[-1].name  # Last numeric col (often the most meaningful)
+
+            if order_col:
+                order_clause = f" ORDER BY {order_col} {direction}"
+
+        sql = f"SELECT {select_clause} FROM {table.table_name}{where_sql}{order_clause} LIMIT {limit_val}"
 
         return GeneratedQuery(
             sql=sql,
@@ -126,36 +180,41 @@ class SQLGenerator:
     def _generate_aggregation(
         self, table: TableMapping, intent: StructuredIntent
     ) -> GeneratedQuery:
-        """Generate an aggregation query with GROUP BY categorical columns.
+        """Generate an aggregation query, optionally with GROUP BY.
+
+        KEY BEHAVIOUR (fixes #1, #2, #3, #4):
+        - If NO group_by_hint is present → pure aggregate with NO GROUP BY.
+          e.g. SELECT SUM(spend), SUM(revenue_attributed) FROM marketing_campaigns
+        - If group_by_hint IS present → group only by those columns, not ALL
+          categoricals.
+        - If target_columns are provided → aggregate only those numeric columns,
+          not every numeric column in the table.
+        - COUNT queries ("how many …") always use COUNT(*) instead of SUM.
 
         Uses the aggregate function from routing_metadata if specified,
         otherwise defaults to SUM. Valid aggregates: SUM, AVG, COUNT, MIN, MAX.
-
-        When routing_metadata contains 'group_by_hint' (column names the user
-        mentioned), the query groups by those specific columns instead of all
-        categorical columns. This produces focused results matching user intent.
 
         Args:
             table: The resolved table mapping.
             intent: The structured intent with routing_metadata.
 
         Returns:
-            A GeneratedQuery with SELECT aggregate(numeric) GROUP BY categorical.
+            A GeneratedQuery with SELECT aggregate(numeric) [GROUP BY categorical].
         """
         numeric_cols = self._schema_registry.get_numeric_columns(table.table_name)
         categorical_cols = self._schema_registry.get_categorical_columns(table.table_name)
 
-        # Determine aggregate function
+        # ── Determine aggregate function ────────────────────────────────────────
         aggregate_fn = intent.routing_metadata.get("aggregate_function", DEFAULT_AGGREGATE)
         if isinstance(aggregate_fn, str):
             aggregate_fn = aggregate_fn.upper()
         if aggregate_fn not in VALID_AGGREGATES:
             aggregate_fn = DEFAULT_AGGREGATE
 
-        # Detect aggregate function from query text if not explicitly provided
         query_text = intent.routing_metadata.get("query_text", "").lower()
+
+        # Detect aggregate function from query text when not explicitly provided
         if aggregate_fn == DEFAULT_AGGREGATE:
-            # Check for explicit aggregate keywords in the query
             if any(kw in query_text for kw in ["average", "avg", "mean"]):
                 aggregate_fn = "AVG"
             elif any(kw in query_text for kw in ["minimum", "min", "lowest", "least"]):
@@ -163,85 +222,93 @@ class SQLGenerator:
             elif any(kw in query_text for kw in ["maximum", "max", "highest", "most", "top"]):
                 aggregate_fn = "MAX"
 
-        # Check for group_by_hint — user mentioned specific columns
-        group_by_hint = intent.routing_metadata.get("group_by_hint", [])
-        target_columns = intent.routing_metadata.get("target_columns", [])
-        matched_filter_keywords = intent.routing_metadata.get("matched_keywords", [])
+        # ── Detect COUNT intent ─────────────────────────────────────────────────
+        is_count_query = any(
+            kw in query_text for kw in ["how many", "count", "number of", "total number",
+                                        "volume", "headcount", "tally"]
+        )
 
-        # Determine which categorical columns to GROUP BY
+        # ── FIX #1 & #2: Determine GROUP BY columns ─────────────────────────────
+        # Only group if the user explicitly hinted at a grouping dimension.
+        group_by_hint: list[str] = intent.routing_metadata.get("group_by_hint", [])
+        target_columns: list[str] = intent.routing_metadata.get("target_columns", [])
+        matched_filter_keywords: list[str] = intent.routing_metadata.get("matched_keywords", [])
+
+        group_cols: list[ColumnClassification] = []  # empty = no GROUP BY
+
         if group_by_hint:
-            # Use only the columns the user mentioned
+            # Resolve hinted names to actual categorical ColumnClassification objects
             all_col_names = {col.name for col in table.columns}
+            filter_map = {fm.keyword: fm.target_column for fm in table.filter_mappings}
+
             group_cols = [
                 col for col in categorical_cols
                 if col.name in group_by_hint or col.name in target_columns
             ]
-            # Fallback: if hint doesn't match any categorical columns, check
-            # filter_mappings for keyword→column resolution
+
             if not group_cols:
-                filter_map = {fm.keyword: fm.target_column for fm in table.filter_mappings}
-                resolved_col_names = set()
+                # Try filter_mapping keyword → column resolution as a fallback
+                resolved_col_names: set[str] = set()
                 for hint in group_by_hint:
                     if hint in filter_map:
                         resolved_col_names.add(filter_map[hint])
-                    # Also check if hint matches a column name directly
                     for col_name in all_col_names:
                         if hint in col_name or col_name.replace("is_", "") == hint:
                             resolved_col_names.add(col_name)
+
                 group_cols = [
                     col for col in categorical_cols
                     if col.name in resolved_col_names
                 ]
-            # If still nothing resolved, fall back to all categorical columns
-            if not group_cols:
-                group_cols = categorical_cols
-        else:
-            group_cols = categorical_cols
 
-        # Determine if this is a COUNT query (e.g., "how many employees are remote")
-        query_text = intent.routing_metadata.get("query_text", "").lower()
-        is_count_query = any(
-            kw in query_text for kw in ["how many", "count", "number of", "total number"]
-        )
+            # FIX #1: If nothing resolved, do NOT fall back to ALL categoricals.
+            # Leave group_cols empty so we get a pure aggregate (no GROUP BY).
 
-        # Build SELECT clause
-        select_parts: list[str] = []
-        for col in group_cols:
-            select_parts.append(col.name)
+        # ── FIX #3: Determine which numeric columns to aggregate ────────────────
+        target_numeric_cols = numeric_cols
+        if target_columns or matched_filter_keywords:
+            all_mentioned = set(target_columns + matched_filter_keywords)
+            targeted = [
+                col for col in numeric_cols
+                if col.name in all_mentioned
+                or col.name.replace("_", " ") in all_mentioned
+                or any(kw in col.name for kw in all_mentioned if len(kw) > 3)
+            ]
+            if targeted:
+                target_numeric_cols = targeted
+
+        # ── Build SELECT clause ─────────────────────────────────────────────────
+        select_parts: list[str] = [col.name for col in group_cols]
 
         if is_count_query:
-            # For "how many" queries, use COUNT(*) instead of aggregating all numeric columns
             select_parts.append("COUNT(*)")
         else:
-            # Determine which numeric columns to aggregate
-            # If the user mentioned specific metrics, only aggregate those
-            target_numeric_cols = numeric_cols
-            if target_columns or matched_filter_keywords:
-                all_mentioned = set(target_columns + matched_filter_keywords)
-                targeted = [
-                    col for col in numeric_cols
-                    if col.name in all_mentioned
-                    or col.name.replace("_", " ") in all_mentioned
-                    or any(kw in col.name for kw in all_mentioned if len(kw) > 3)
-                ]
-                if targeted:
-                    target_numeric_cols = targeted
-
             for col in target_numeric_cols:
-                select_parts.append(f"{aggregate_fn}({col.name})")
+                alias = f"{aggregate_fn.lower()}_{col.name}"
+                # BOOLEAN columns can't be CAST to INT in Redshift —
+                # use CASE WHEN col THEN 1 ELSE 0 END instead
+                if col.sql_type == "BOOLEAN":
+                    col_expr = f"CASE WHEN {col.name} THEN 1 ELSE 0 END"
+                else:
+                    col_expr = col.name
+                select_parts.append(f"{aggregate_fn}({col_expr}) AS {alias}")
 
-        select_clause = ", ".join(select_parts)
+        select_clause = ", ".join(select_parts) if select_parts else "COUNT(*)"
 
-        # GROUP BY the selected categorical columns
-        group_by_clause = ", ".join(col.name for col in group_cols)
-
-        # Build WHERE clause from filters
+        # ── Build WHERE clause ──────────────────────────────────────────────────
         where_parts, parameters = self._build_where_clause(table, intent)
+        where_sql = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
-        if where_parts:
-            sql = f"SELECT {select_clause} FROM {table.table_name} WHERE {' AND '.join(where_parts)} GROUP BY {group_by_clause}"
+        # ── FIX #2: Only emit GROUP BY when there are actual grouping columns ───
+        if group_cols:
+            group_by_clause = ", ".join(col.name for col in group_cols)
+            sql = (
+                f"SELECT {select_clause} FROM {table.table_name}"
+                f"{where_sql} GROUP BY {group_by_clause}"
+            )
         else:
-            sql = f"SELECT {select_clause} FROM {table.table_name} GROUP BY {group_by_clause}"
+            # Pure aggregate — no GROUP BY
+            sql = f"SELECT {select_clause} FROM {table.table_name}{where_sql}"
 
         return GeneratedQuery(
             sql=sql,
@@ -259,7 +326,12 @@ class SQLGenerator:
         as the comparison dimension. Otherwise falls back to the first categorical
         column.
 
-        Produces SELECT comparison_col, COUNT(*) or SUM(numeric_cols) GROUP BY comparison_col.
+        Produces SELECT comparison_col, AGG(numeric_cols)
+        GROUP BY comparison_col.
+
+        Uses the aggregate_function from routing_metadata if specified (AVG, SUM, etc.),
+        otherwise defaults to AVG for comparison queries (comparing averages is more
+        common than comparing totals).
 
         Args:
             table: The resolved table mapping.
@@ -271,24 +343,35 @@ class SQLGenerator:
         numeric_cols = self._schema_registry.get_numeric_columns(table.table_name)
         categorical_cols = self._schema_registry.get_categorical_columns(table.table_name)
 
-        # Determine comparison dimension from group_by_hint or fallback to first categorical
-        group_by_hint = intent.routing_metadata.get("group_by_hint", [])
-        target_columns = intent.routing_metadata.get("target_columns", [])
+        group_by_hint: list[str] = intent.routing_metadata.get("group_by_hint", [])
+        target_columns: list[str] = intent.routing_metadata.get("target_columns", [])
 
-        first_categorical = None
+        # Determine aggregate function — prefer AVG for comparisons unless specified
+        aggregate_fn = intent.routing_metadata.get("aggregate_function", "AVG")
+        if isinstance(aggregate_fn, str):
+            aggregate_fn = aggregate_fn.upper()
+        if aggregate_fn not in VALID_AGGREGATES:
+            aggregate_fn = "AVG"
+
+        # Detect aggregate function from query text
+        query_text = intent.routing_metadata.get("query_text", "").lower()
+        if any(kw in query_text for kw in ["total", "sum"]):
+            aggregate_fn = "SUM"
+        elif any(kw in query_text for kw in ["count", "how many", "number of"]):
+            aggregate_fn = "COUNT"
+
+        # Determine comparison dimension
+        first_categorical: str | None = None
         if group_by_hint or target_columns:
-            # Try to find a categorical column matching the hint
             hints = group_by_hint or target_columns
             filter_map = {fm.keyword: fm.target_column for fm in table.filter_mappings}
             for hint in hints:
-                # Direct column name match
                 for col in categorical_cols:
                     if col.name == hint or col.name.replace("is_", "") == hint:
                         first_categorical = col.name
                         break
                 if first_categorical:
                     break
-                # Filter mapping keyword match
                 if hint in filter_map:
                     first_categorical = filter_map[hint]
                     break
@@ -296,11 +379,30 @@ class SQLGenerator:
         if not first_categorical:
             first_categorical = categorical_cols[0].name if categorical_cols else None
 
-        # Determine if this is a COUNT query
-        query_text = intent.routing_metadata.get("query_text", "").lower()
+        # Detect COUNT intent — but not if the query is asking about a numeric metric
+        # e.g. "salary distribution" should not trigger COUNT; "ticket distribution" should.
+        has_numeric_target = bool(target_columns or intent.routing_metadata.get("matched_keywords", []))
         is_count_query = any(
-            kw in query_text for kw in ["how many", "count", "number of", "total number"]
+            kw in query_text for kw in ["how many", "number of", "total number",
+                                        "volume", "headcount", "tally"]
         )
+        if not has_numeric_target:
+            if any(kw in query_text for kw in ["count", "distribution"]):
+                is_count_query = True
+
+        # FIX #3: Respect target_columns for numeric aggregation in comparisons too
+        matched_filter_keywords: list[str] = intent.routing_metadata.get("matched_keywords", [])
+        target_numeric_cols = numeric_cols
+        if target_columns or matched_filter_keywords:
+            all_mentioned = set(target_columns + matched_filter_keywords)
+            targeted = [
+                col for col in numeric_cols
+                if col.name in all_mentioned
+                or col.name.replace("_", " ") in all_mentioned
+                or any(kw in col.name for kw in all_mentioned if len(kw) > 3)
+            ]
+            if targeted:
+                target_numeric_cols = targeted
 
         # Build SELECT clause
         select_parts: list[str] = []
@@ -310,26 +412,30 @@ class SQLGenerator:
         if is_count_query:
             select_parts.append("COUNT(*)")
         else:
-            for col in numeric_cols:
-                select_parts.append(f"SUM({col.name})")
+            for col in target_numeric_cols:
+                alias = f"{aggregate_fn.lower()}_{col.name}"
+                # BOOLEAN columns can't be CAST to INT in Redshift —
+                # use CASE WHEN col THEN 1 ELSE 0 END instead
+                if col.sql_type == "BOOLEAN":
+                    col_expr = f"CASE WHEN {col.name} THEN 1 ELSE 0 END"
+                else:
+                    col_expr = col.name
+                select_parts.append(f"{aggregate_fn}({col_expr}) AS {alias}")
 
         select_clause = ", ".join(select_parts)
 
-        # Build WHERE clause from filters
+        # Build WHERE clause
         where_parts, parameters = self._build_where_clause(table, intent)
+        where_sql = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
-        # GROUP BY first categorical column
         if first_categorical:
-            if where_parts:
-                sql = f"SELECT {select_clause} FROM {table.table_name} WHERE {' AND '.join(where_parts)} GROUP BY {first_categorical}"
-            else:
-                sql = f"SELECT {select_clause} FROM {table.table_name} GROUP BY {first_categorical}"
+            sql = (
+                f"SELECT {select_clause} FROM {table.table_name}"
+                f"{where_sql} GROUP BY {first_categorical}"
+            )
         else:
-            # Edge case: no categorical columns - just aggregate
-            if where_parts:
-                sql = f"SELECT {select_clause} FROM {table.table_name} WHERE {' AND '.join(where_parts)}"
-            else:
-                sql = f"SELECT {select_clause} FROM {table.table_name}"
+            # Edge case: no categorical columns — just aggregate
+            sql = f"SELECT {select_clause} FROM {table.table_name}{where_sql}"
 
         return GeneratedQuery(
             sql=sql,
@@ -372,7 +478,6 @@ class SQLGenerator:
 
             param_name = f"param_{param_index}"
             param_index += 1
-
             condition = self._build_condition(mapping, param_name)
             where_parts.append(condition)
             parameters.append({"name": param_name, "value": value})

@@ -54,7 +54,7 @@ RETENTION_DAYS_MIN = 1
 RETENTION_DAYS_MAX = 90
 
 # Model configuration
-DEFAULT_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+DEFAULT_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 EMBEDDINGS_MODEL_ID = "amazon.titan-embed-text-v2:0"
 
 # Bedrock Guardrails

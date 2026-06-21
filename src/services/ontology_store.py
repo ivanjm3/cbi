@@ -86,6 +86,13 @@ class OntologyStore:
         if not self._definitions:
             self._load_from_local()
 
+        # Surface zero-concept state prominently so operators notice
+        total_concepts = sum(len(d.concepts) for d in self._definitions.values())
+        if total_concepts == 0:
+            logger.error(
+                "OntologyStore loaded 0 concepts — entity resolution will fail"
+            )
+
     def _load_from_local(self) -> None:
         """Load ontology definitions from local data/ontology/ directory.
 
@@ -179,6 +186,12 @@ class OntologyStore:
         Returns:
             List of concepts matching the keyword, ordered by match quality.
         """
+        if not self._definitions:
+            logger.warning(
+                "OntologyStore has no loaded definitions, cannot resolve entities"
+            )
+            return []
+
         keyword_lower = keyword.lower().strip()
         if not keyword_lower:
             return []
@@ -212,12 +225,14 @@ class OntologyStore:
         1 = exact label match
         2 = concept_id word containment
         3 = label word stem match
-        4 = description containment
-        5 = description stem match
+        4 = filter_keyword exact match
+        5 = description containment
+        6 = description stem match
         """
         label_lower = concept.label.lower()
         concept_id_lower = concept.concept_id.lower().replace("ontology:", "").replace("_", " ")
         description = concept.properties.get("description", "").lower()
+        filter_keywords = [kw.lower() for kw in concept.properties.get("filter_keywords", [])]
 
         # Priority 0: exact concept_id match (e.g. "workforce_metrics" matches ontology:workforce_metrics)
         if keyword.replace(" ", "_") == concept_id_lower.replace(" ", "_"):
@@ -241,17 +256,26 @@ class OntologyStore:
                 if word.startswith(stem) or stem.startswith(word):
                     return 3
 
-        # Priority 4: exact substring in description
-        if keyword in description:
+        # Priority 4: exact match in filter_keywords
+        if keyword in filter_keywords:
             return 4
+        # Stem match in filter_keywords
+        for fkw in filter_keywords:
+            for stem in stems:
+                if fkw == stem or fkw.startswith(stem) or stem.startswith(fkw):
+                    return 4
 
-        # Priority 5: stem match in description (only for longer stems)
+        # Priority 5: exact substring in description
+        if keyword in description:
+            return 5
+
+        # Priority 6: stem match in description (only for longer stems)
         desc_words = set(description.split())
         for stem in stems:
             if len(stem) >= 4:
                 for word in desc_words:
                     if word.startswith(stem):
-                        return 5
+                        return 6
 
         return None
 

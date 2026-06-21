@@ -9,7 +9,7 @@
         "aggregatable": true,
         "description": "Revenue generated from product sales, tracked quarterly by region and category",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json",
+        "agent_id": "spoke-agent",
         "table_name": "sales_performance",
         "columns": {
           "quarter": {"type": "categorical", "description": "Fiscal quarter (e.g. Q1 2024)"},
@@ -33,7 +33,7 @@
         "aggregatable": true,
         "description": "Number of customer orders placed, tracked quarterly by region and category",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json",
+        "agent_id": "spoke-agent",
         "table_name": "sales_performance",
         "columns": {
           "quarter": {"type": "categorical", "description": "Fiscal quarter (e.g. Q1 2024)"},
@@ -57,7 +57,7 @@
         "aggregatable": true,
         "description": "Percentage of orders returned, tracked quarterly by region and category",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json",
+        "agent_id": "spoke-agent",
         "table_name": "sales_performance",
         "columns": {
           "quarter": {"type": "categorical", "description": "Fiscal quarter"},
@@ -79,7 +79,7 @@
         "type": "report",
         "description": "Aggregated financial performance data by quarter including revenue, orders, and return rates across regions and categories",
         "data_source": "financial_data",
-        "agent_id": "spoke-agent-json",
+        "agent_id": "spoke-agent",
         "table_name": "sales_performance",
         "columns": {
           "quarter": {"type": "categorical", "description": "Fiscal quarter (e.g. Q1 2024, Q2 2024)"},
@@ -102,7 +102,7 @@
         "type": "catalog",
         "description": "Complete listing of products with pricing, stock levels, supplier info, subcategories, and active status",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv",
+        "agent_id": "spoke-agent",
         "table_name": "product_catalog",
         "columns": {
           "product_id": {"type": "identifier", "description": "Unique product identifier"},
@@ -131,7 +131,7 @@
         "aggregatable": true,
         "description": "Current stock quantity for products, grouped by category and supplier",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv",
+        "agent_id": "spoke-agent",
         "table_name": "product_catalog",
         "columns": {
           "product_id": {"type": "identifier", "description": "Unique product identifier"},
@@ -157,7 +157,7 @@
         "aggregatable": true,
         "description": "Unit price and unit cost for products, enabling margin and markup calculations",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv",
+        "agent_id": "spoke-agent",
         "table_name": "product_catalog",
         "columns": {
           "product_id": {"type": "identifier", "description": "Unique product identifier"},
@@ -180,7 +180,7 @@
         "type": "reference",
         "description": "Supplier names, regions, and product associations",
         "data_source": "product_catalog",
-        "agent_id": "spoke-agent-csv",
+        "agent_id": "spoke-agent",
         "table_name": "product_catalog",
         "columns": {
           "product_id": {"type": "identifier", "description": "Product identifier"},
@@ -221,7 +221,7 @@
           "engagement_score": {"type": "numeric", "sql_type": "DECIMAL", "unit": "score", "description": "Employee engagement score (2.5-5.0)"},
           "is_remote": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether the employee works remotely (true) or in-office (false)"}
         },
-        "filter_keywords": ["department", "job_level", "level", "office_location", "location", "remote", "in-office", "onsite", "on-site", "salary", "bonus", "utilization", "training", "certifications", "engagement", "hire_date", "hired", "employee", "employees", "workforce", "staff", "headcount"]
+        "filter_keywords": ["department", "job_level", "level", "office_location", "location", "remote", "in-office", "onsite", "on-site", "salary", "bonus", "bonus percentage", "bonus pct", "bonus_pct", "utilization", "training", "certifications", "engagement", "hire_date", "hired", "employee", "employees", "workforce", "staff", "headcount", "departments"]
       },
       "relationships": []
     },
@@ -247,10 +247,10 @@
           "assigned_team": {"type": "categorical", "sql_type": "VARCHAR", "description": "Assigned support team (Tier 1, Tier 2, Tier 3 Engineering, Billing Team, Account Management)"},
           "resolution_hours": {"type": "numeric", "sql_type": "DECIMAL", "unit": "hours", "description": "Hours to resolve the ticket"},
           "satisfaction_rating": {"type": "numeric", "sql_type": "INTEGER", "unit": "score", "description": "Customer satisfaction rating (1-5)"},
-          "escalated": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether the ticket was escalated (true/false)"},
-          "first_contact_resolution": {"type": "categorical", "sql_type": "BOOLEAN", "description": "Whether resolved on first contact (true/false)"}
+          "escalated": {"type": "numeric", "sql_type": "BOOLEAN", "description": "Whether the ticket was escalated (true/false) — use AVG for escalation rate"},
+          "first_contact_resolution": {"type": "numeric", "sql_type": "BOOLEAN", "description": "Whether resolved on first contact (true/false) — use AVG for FCR rate"}
         },
-        "filter_keywords": ["customer_tier", "tier", "channel", "priority", "issue_category", "category", "issue", "assigned_team", "team", "escalated", "escalation", "first_contact", "first contact resolution", "fcr", "resolution", "resolved", "unresolved", "satisfaction", "rating", "ticket", "tickets", "support"]
+        "filter_keywords": ["customer_tier", "tier", "channel", "priority", "issue_category", "category", "issue", "assigned_team", "team", "escalated", "escalation", "first_contact", "first contact resolution", "first-contact", "first-contact resolution", "fcr", "resolution", "resolved", "unresolved", "satisfaction", "rating", "ticket", "tickets", "support", "resolution time", "resolution times", "resolution hours", "time to resolve", "enterprise", "free", "starter", "professional", "strategic", "distribution"]
       },
       "relationships": []
     },
@@ -280,7 +280,7 @@
           "revenue_attributed": {"type": "numeric", "sql_type": "DECIMAL", "unit": "currency", "description": "Revenue attributed to this campaign"},
           "status": {"type": "categorical", "sql_type": "VARCHAR", "description": "Campaign status (Active, Completed, Paused)"}
         },
-        "filter_keywords": ["channel", "target_audience", "audience", "status", "active", "completed", "paused", "budget", "spend", "spending", "impressions", "clicks", "ctr", "conversions", "conversion rate", "revenue", "roi", "campaign", "campaigns", "marketing"]
+        "filter_keywords": ["channel", "target_audience", "audience", "status", "active", "completed", "paused", "budget", "spend", "spending", "impressions", "clicks", "ctr", "click-through", "click-through rate", "click through rate", "conversions", "conversion rate", "revenue_attributed", "revenue", "roi", "campaign", "campaigns", "marketing"]
       },
       "relationships": []
     },

@@ -16,3 +16,4 @@ lambda
 deploy
 .gitignore
 README.md
+src/mcp_servers/__pycache__

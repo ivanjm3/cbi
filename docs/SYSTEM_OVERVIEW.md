@@ -235,6 +235,16 @@ Central configuration: port assignments, AWS settings (S3 bucket, Bedrock model 
 |------|---------|
 | `spoke_agent.py` | FastAPI app (port 8010) — deterministic data agent that queries S3 JSON/CSV based on entity_refs without using LLM |
 | `redshift_spoke_agent.py` | FastAPI app (port 8011) — generates SQL, executes against Redshift Data API, formats results for the viz pipeline |
+| `mcp_adapter/` | MCP Adapter Layer module (port 8012) — bridges Orchestrator Hub with mcp-redshift and mcp-s3 servers |
+| `mcp_adapter/config.py` | Configuration models — parses `MCP_ADAPTER_REDSHIFT_*` and `MCP_ADAPTER_S3_*` env vars for transport, timeout, host/port/command |
+| `mcp_adapter/client_manager.py` | MCP client connection lifecycle — connect, reconnect (30s intervals, 10 max attempts), graceful disconnect, tool invocation |
+| `mcp_adapter/intent_router.py` | Entity-ref routing — resolves entity_refs via OntologyStore to determine target MCP server and dataset |
+| `mcp_adapter/redshift_translator.py` | Redshift translation — reuses SQLGenerator for SQL, invokes execute_parameterized_query via MCP |
+| `mcp_adapter/s3_translator.py` | S3 translation — calls read_dataset with pagination, local aggregation/comparison computation |
+| `mcp_adapter/response_transformer.py` | Response transformation — converts MCP tool results to AgentResult format for downstream services |
+| `mcp_adapter/fallback_handler.py` | Fallback dispatch — routes to legacy spoke agents when MCP servers are unavailable |
+| `mcp_adapter/service.py` | FastAPI app (port 8012) — exposes /agents/mcp-redshift-adapter/invoke and /agents/mcp-s3-adapter/invoke endpoints |
+| `mcp_adapter/models.py` | Data models — RoutingTarget (server_id, dataset_name) and MCPToolResult (success, content, duration) |
 
 #### `src/services/`
 
@@ -256,7 +266,8 @@ Central configuration: port assignments, AWS settings (S3 bucket, Bedrock model 
 | `lru_cache.py` | Generic LRU cache implementation used by multiple services |
 | `cost_tracker.py` | Logs every Bedrock invocation cost (input/output tokens) to S3 for observability |
 | `query_history_store.py` | Stores past queries + intents for similarity matching and routing bias |
-| `register_agents.py` | Startup script that registers spoke agents with the Orchestrator Hub via HTTP |
+| `register_agents.py` | Startup script that registers spoke agents (and conditionally MCP adapter agents) with the Orchestrator Hub via HTTP |
+| `feature_flag_router.py` | Feature flag routing — reads USE_MCP_ADAPTER, USE_MCP_REDSHIFT, USE_MCP_S3 env vars to decide MCP vs legacy routing |
 | `cancellation_registry.py` | In-memory registry tracking cancelled query correlation IDs for cooperative cancellation |
 | `meta_query_detector.py` | Detects capability/system questions ("what can you do?") and returns text responses without running the data pipeline |
 | `text_only_detector.py` | Detects queries that should return text summaries instead of charts |
@@ -464,6 +475,7 @@ Every LLM-dependent stage has a heuristic fallback ensuring the system **never f
 | Visualization Renderer | 8004 | Chart.js config generation |
 | Spoke Agent (JSON/CSV) | 8010 | Data retrieval from S3 files |
 | Redshift Spoke Agent | 8011 | SQL generation + execution against Redshift |
+| MCP Adapter Layer | 8012 | MCP-based data access (bridges to mcp-redshift and mcp-s3 servers) |
 
 ---
 
@@ -512,3 +524,166 @@ Two models supported:
 5. **Complete observability** — Structured JSON logging, correlation IDs through every service, cost tracking per invocation.
 6. **Caching everywhere** — 4-layer cache strategy minimizes cost ($) and latency.
 7. **Cooperative cancellation** — Users can cancel any query mid-flight without wasting resources.
+
+
+---
+
+## 12. MCP Data Access Architecture
+
+The system supports two data access paths controlled by feature flags. The **legacy path** (default) accesses data directly via boto3 S3 `get_object` and the Redshift Data API. The **MCP path** routes all data access through production-ready MCP servers, unifying data access under the Model Context Protocol.
+
+### 12.1 MCP Data Flow Diagram
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                  Orchestrator Hub (port 8002)                                │
+│                                                                             │
+│    ┌─────────────────────────────────┐                                      │
+│    │      FeatureFlagRouter          │                                      │
+│    │  USE_MCP_ADAPTER / per-source   │                                      │
+│    └───────────┬─────────────────────┘                                      │
+│                │                                                            │
+│         ┌──────┴──────┐                                                     │
+│         │             │                                                     │
+│    flag=true     flag=false                                                 │
+│         │             │                                                     │
+└─────────┼─────────────┼────────────────────────────────────────────────────┘
+          │             │
+          ▼             ▼
+┌─────────────────┐  ┌──────────────────────────────────────┐
+│  MCP Adapter    │  │  Legacy Spoke Agents                  │
+│  Layer (8012)   │  │  • Spoke Agent (8010) — S3 via boto3  │
+│                 │  │  • Redshift Agent (8011) — Data API   │
+│  ┌───────────┐  │  └──────────────────────────────────────┘
+│  │IntentRouter│  │
+│  └─────┬─────┘  │
+│        │         │
+│   ┌────┴────┐    │
+│   │         │    │
+│   ▼         ▼    │
+│ Redshift  S3     │
+│ Translator Translator
+│   │         │    │
+│   ▼         ▼    │
+│ ┌─────┐ ┌─────┐ │
+│ │MCP  │ │MCP  │ │
+│ │Client│ │Client│ │
+│ └──┬──┘ └──┬──┘ │
+│    │        │    │
+│    │  Fallback ──┼──→ Legacy Spoke Agents (on MCP failure)
+└────┼────────┼────┘
+     │        │
+     ▼        ▼
+┌─────────┐ ┌────────┐
+│mcp-     │ │mcp-s3  │
+│redshift │ │(8 tools│
+│(9 tools)│ │)       │
+└─────────┘ └────────┘
+```
+
+### 12.2 Feature Flag Mechanism
+
+Feature flags control whether data access routes through MCP or legacy spoke agents. Flags are read from environment variables at request time — no restart required to toggle.
+
+| Flag Name | Scope | Default | Description |
+|-----------|-------|---------|-------------|
+| `USE_MCP_ADAPTER` | Global | `false` | Enables MCP routing for all data sources |
+| `USE_MCP_REDSHIFT` | Per-datasource | unset | Enables MCP routing for Redshift entities only |
+| `USE_MCP_S3` | Per-datasource | unset | Enables MCP routing for S3 entities only |
+
+**Precedence rules:**
+1. Per-datasource flag (`USE_MCP_REDSHIFT` / `USE_MCP_S3`) takes priority if set
+2. Global flag (`USE_MCP_ADAPTER`) applies when no per-datasource flag is set
+3. Default behavior is legacy (false) when no flags are configured
+
+**To enable MCP for all data sources:**
+```bash
+export USE_MCP_ADAPTER=true
+```
+
+**To enable MCP for Redshift only (gradual migration):**
+```bash
+export USE_MCP_REDSHIFT=true
+```
+
+**To disable MCP for S3 while global is enabled:**
+```bash
+export USE_MCP_ADAPTER=true
+export USE_MCP_S3=false
+```
+
+### 12.3 MCP Tools Invoked by the Adapter
+
+#### mcp-redshift (9 tools available, adapter uses 3)
+
+| MCP Tool | Used For | StructuredIntent query_type |
+|----------|----------|-----------------------------|
+| `execute_parameterized_query` | Running generated SQL with parameters | lookup, aggregation, comparison |
+| `describe_table` | Fetching column definitions (cached) | All (schema cache miss) |
+| `execute_query` | Running non-parameterized queries | lookup, aggregation, comparison |
+
+#### mcp-s3 (8 tools available, adapter uses 4)
+
+| MCP Tool | Used For | StructuredIntent query_type |
+|----------|----------|-----------------------------|
+| `read_dataset` | Retrieving dataset rows with pagination | lookup, aggregation, comparison |
+| `get_schema` | Fetching column type definitions (cached) | All (schema cache miss) |
+| `sample_dataset` | Inferring column types from sample rows | All (fallback for schema) |
+| `get_semantic_metadata` | Getting dimension/measure annotations | aggregation, comparison |
+
+### 12.4 Query Lifecycle with MCP Path
+
+When MCP is enabled, step [4] and [5] of the query lifecycle change:
+
+```
+[4] ORCHESTRATOR HUB (port 8002)
+    a. Check Result Cache → MISS
+    b. Resolve agents by entity_refs
+    c. FeatureFlagRouter: USE_MCP_ADAPTER=true → route to MCP Adapter
+    d. POST to http://localhost:8012/agents/mcp-redshift-adapter/invoke
+       (or mcp-s3-adapter/invoke for S3 entities)
+
+[5] MCP ADAPTER LAYER (port 8012)
+    a. Parse StructuredIntent
+    b. Check cancellation registry
+    c. IntentRouter: resolve entity_refs → RoutingTarget (server_id + dataset)
+    d. FOR REDSHIFT:
+       - SQLGenerator.generate(intent) → GeneratedQuery with parameterized SQL
+       - MCPClientManager.call_tool("execute_parameterized_query", {sql, params})
+       - ResponseTransformer.from_redshift_query() → AgentResult
+    e. FOR S3:
+       - S3Translator.execute(): read_dataset with pagination (up to 10000 rows)
+       - Local aggregation/comparison computation
+       - Return AgentResult
+    f. ON MCP FAILURE:
+       - FallbackHandler dispatches to legacy spoke agent (port 8010/8011)
+       - If legacy also fails → DUAL_PATH_FAILURE error
+```
+
+### 12.5 Fallback Behavior
+
+The MCP Adapter Layer guarantees service availability during migration through automatic fallback:
+
+| Condition | Behavior |
+|-----------|----------|
+| MCP server unavailable at startup | Server marked unavailable, all requests routed to legacy |
+| MCP server unavailable during request | FallbackHandler dispatches to legacy spoke agent |
+| MCP tool call timeout (default 30s) | Cancel pending call, fall back to legacy |
+| Connection reset during tool call | One reconnect attempt (3s); if fails, fall back to legacy |
+| Both MCP and legacy fail | Return `DUAL_PATH_FAILURE` error with both failure details |
+| MCP server reconnection | Background loop at 30s intervals, max 10 attempts; restores availability on success |
+
+### 12.6 MCP Adapter Configuration (Environment Variables)
+
+| Variable | Required For | Default | Description |
+|----------|--------------|---------|-------------|
+| `MCP_ADAPTER_REDSHIFT_TRANSPORT` | Always | `stdio` | Transport: "stdio" or "streamable-http" |
+| `MCP_ADAPTER_REDSHIFT_HOST` | streamable-http | — | Server hostname |
+| `MCP_ADAPTER_REDSHIFT_PORT` | streamable-http | — | Server port (1024-65535) |
+| `MCP_ADAPTER_REDSHIFT_COMMAND` | stdio | — | Server executable path |
+| `MCP_ADAPTER_REDSHIFT_TIMEOUT` | Optional | `30` | Tool call timeout (1-300 seconds) |
+| `MCP_ADAPTER_S3_TRANSPORT` | Always | `stdio` | Transport: "stdio" or "streamable-http" |
+| `MCP_ADAPTER_S3_HOST` | streamable-http | — | Server hostname |
+| `MCP_ADAPTER_S3_PORT` | streamable-http | — | Server port (1024-65535) |
+| `MCP_ADAPTER_S3_COMMAND` | stdio | — | Server executable path |
+| `MCP_ADAPTER_S3_TIMEOUT` | Optional | `30` | Tool call timeout (1-300 seconds) |

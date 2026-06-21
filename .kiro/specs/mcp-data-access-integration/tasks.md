@@ -7,7 +7,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
 ## Tasks
 
 - [ ] 1. Set up MCP Adapter module structure, configuration, and data models
-  - [ ] 1.1 Create the MCP Adapter module directory and configuration models
+  - [x] 1.1 Create the MCP Adapter module directory and configuration models
     - Create `src/agents/mcp_adapter/` directory with `__init__.py`
     - Create `src/agents/mcp_adapter/config.py` with `MCPServerConfig` and `MCPAdapterConfig` Pydantic models
     - Implement environment variable parsing with `MCP_ADAPTER_REDSHIFT_` and `MCP_ADAPTER_S3_` prefixes
@@ -20,14 +20,14 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
     - Generate random env var combinations with Hypothesis; verify TRANSPORT defaults to "stdio", TIMEOUT clamps to 1-300, missing required vars mark server unavailable, invalid TRANSPORT marks server unavailable
     - **Validates: Requirements 9.1, 9.2, 9.3, 9.4, 9.7, 9.8**
 
-  - [ ] 1.3 Create routing and response data models
+  - [x] 1.3 Create routing and response data models
     - Create `src/agents/mcp_adapter/models.py` with `RoutingTarget`, `MCPToolResult` models
     - `RoutingTarget` includes server_id ("redshift" or "s3"), dataset_name, table_name, entity_refs
     - `MCPToolResult` includes success, content, error_message, tool_name, server_id, duration_ms
     - _Requirements: 2.10, 3.5, 3.6_
 
 - [ ] 2. Implement MCPClientManager for server connections
-  - [ ] 2.1 Implement MCPClientManager with connection lifecycle
+  - [x] 2.1 Implement MCPClientManager with connection lifecycle
     - Create `src/agents/mcp_adapter/client_manager.py`
     - Implement `connect()` using official `mcp` Python SDK — `StdioClientTransport` for stdio, `StreamableHTTPClientTransport` for streamable-http
     - Implement 10-second connection timeout, available/unavailable state tracking
@@ -44,7 +44,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
     - _Requirements: 1.1, 1.2, 1.3, 1.6, 1.7_
 
 - [ ] 3. Implement IntentRouter for entity_ref resolution
-  - [ ] 3.1 Implement IntentRouter
+  - [x] 3.1 Implement IntentRouter
     - Create `src/agents/mcp_adapter/intent_router.py`
     - Inject `OntologyStore` dependency, resolve each entity_ref by calling `ontology_store.lookup_concept()` and reading the `data_source` property
     - Map "s3" / financial data sources to mcp-s3 server with appropriate dataset_name ("financial_data" or "product_catalog")
@@ -66,7 +66,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Implement RedshiftTranslator with SQL generation reuse
-  - [ ] 5.1 Implement RedshiftTranslator
+  - [x] 5.1 Implement RedshiftTranslator
     - Create `src/agents/mcp_adapter/redshift_translator.py`
     - Inject `SQLGenerator` and `MCPClientManager` dependencies
     - Call `SQLGenerator.generate(intent)` to produce a `GeneratedQuery` or `SQLGeneratorError`
@@ -86,7 +86,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
     - **Validates: Requirements 5.6**
 
 - [ ] 6. Implement S3Translator with pagination and local aggregation
-  - [ ] 6.1 Implement S3Translator
+  - [x] 6.1 Implement S3Translator
     - Create `src/agents/mcp_adapter/s3_translator.py`
     - Inject `MCPClientManager` dependency
     - Implement `execute()` that calls `read_dataset` with the resolved dataset name
@@ -113,7 +113,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
     - **Validates: Requirements 6.5**
 
 - [ ] 7. Implement ResponseTransformer
-  - [ ] 7.1 Implement ResponseTransformer
+  - [x] 7.1 Implement ResponseTransformer
     - Create `src/agents/mcp_adapter/response_transformer.py`
     - Implement `from_redshift_query()`: transform execute_query/execute_parameterized_query result into AgentResult with data_type "tabular", columns, rows, row_count from pagination.total_count
     - Implement `from_s3_read()`: transform accumulated rows into AgentResult with data_type based on query_type
@@ -141,7 +141,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 9. Implement FallbackHandler and error handling
-  - [ ] 9.1 Implement FallbackHandler
+  - [x] 9.1 Implement FallbackHandler
     - Create `src/agents/mcp_adapter/fallback_handler.py`
     - Inject legacy endpoint URLs (S3 spoke agent port 8010, Redshift spoke agent port 8011)
     - Implement `dispatch()` that POSTs StructuredIntent to legacy spoke agent's `/agents/{agent_id}/invoke` endpoint
@@ -157,7 +157,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
     - **Validates: Requirements 1.4, 7.1, 7.2**
 
 - [ ] 10. Implement MCPAdapterService FastAPI application
-  - [ ] 10.1 Implement MCPAdapterService FastAPI app
+  - [x] 10.1 Implement MCPAdapterService FastAPI app
     - Create `src/agents/mcp_adapter/service.py` with FastAPI app on port 8012
     - Implement lifespan: initialize MCPClientManagers for both servers, IntentRouter, RedshiftTranslator, S3Translator, ResponseTransformer, FallbackHandler
     - Implement `POST /agents/mcp-redshift-adapter/invoke` endpoint
@@ -179,13 +179,13 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
     - **Validates: Requirements 7.5**
 
 - [ ] 11. Implement FeatureFlagRouter and Orchestrator integration
-  - [ ] 11.1 Implement FeatureFlagRouter in orchestrator
+  - [x] 11.1 Implement FeatureFlagRouter in orchestrator
     - Create `src/services/feature_flag_router.py`
     - Implement `should_use_mcp(data_source)` that reads env vars per-request: `USE_MCP_REDSHIFT`, `USE_MCP_S3`, `USE_MCP_ADAPTER`
     - Per-datasource flag overrides global flag; global flag defaults to `false`
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-  - [ ] 11.2 Integrate FeatureFlagRouter into OrchestratorHub
+  - [x] 11.2 Integrate FeatureFlagRouter into OrchestratorHub
     - Modify `src/services/orchestrator_hub.py` to check `FeatureFlagRouter.should_use_mcp()` before agent resolution
     - When MCP is enabled for a data_source, route to the MCP Adapter endpoint instead of legacy spoke agents
     - Return `MCP_ADAPTER_UNAVAILABLE` error if MCP Adapter is unreachable when flag is true
@@ -197,7 +197,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
     - **Validates: Requirements 4.2, 4.3, 4.5, 4.6**
 
 - [ ] 12. Implement agent registration with Orchestrator
-  - [ ] 12.1 Register MCP adapter agents with the Orchestrator Hub
+  - [x] 12.1 Register MCP adapter agents with the Orchestrator Hub
     - Modify `src/services/register_agents.py` to conditionally register `mcp-redshift-adapter` and `mcp-s3-adapter` with the Orchestrator Hub
     - Use the same `AgentRegistration` interface: agent_id, agent_name, data_source, endpoint_url (port 8012), entity_refs
     - Assign Redshift entity_refs (workforce_metrics, support_tickets, marketing_campaigns) to `mcp-redshift-adapter`
@@ -209,7 +209,7 @@ Implement the MCP Adapter Layer as a FastAPI service (port 8012) that bridges th
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 14. Update system documentation
-  - [ ] 14.1 Update docs/SYSTEM_OVERVIEW.md with MCP architecture
+  - [x] 14.1 Update docs/SYSTEM_OVERVIEW.md with MCP architecture
     - Add MCP data flow architecture diagram showing both MCP and legacy paths with feature flag as decision point
     - Add MCP Adapter Layer to service ports table (port 8012)
     - Add MCP Adapter to project structure file reference section

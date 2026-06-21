@@ -61,8 +61,7 @@ def nlp_translator_with_agents(ontology_store):
         ontology_store=ontology_store,
         registered_agent_ids=[
             "redshift-spoke-agent",
-            "spoke-agent-csv",
-            "spoke-agent-json",
+            "spoke-agent",
         ],
     )
 
@@ -339,4 +338,4 @@ def test_registered_agent_preference(nlp_translator_with_agents):
     # The registered agents list should influence entity resolution
     # when multiple concepts have the same score
     assert "redshift-spoke-agent" in translator._registered_agent_ids
-    assert "spoke-agent-csv" in translator._registered_agent_ids
+    assert "spoke-agent" in translator._registered_agent_ids
