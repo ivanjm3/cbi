@@ -67,11 +67,16 @@ CORE_SERVICES = [
     {"name": "Redshift Spoke Agent",   "module": "src.agents.redshift_spoke_agent:app","port": 8011},
 ]
 
-# MCP servers — started as plain subprocesses (not uvicorn)
+# MCP servers — started as plain subprocesses using isolated venvs.
+# In the container, each venv has its own Python with its own deps.
+# Locally (dev), falls back to sys.executable if venv paths don't exist.
+_MCP_RS_PYTHON = "/app/venv-mcp-rs/bin/python" if os.path.exists("/app/venv-mcp-rs/bin/python") else sys.executable
+_MCP_S3_PYTHON = "/app/venv-mcp-s3/bin/python" if os.path.exists("/app/venv-mcp-s3/bin/python") else sys.executable
+
 MCP_SERVER_PROCS = [
     {
         "name": "MCP Redshift Server",
-        "cmd": [sys.executable, "-c", "from mcp_redshift.server import main; main()"],
+        "cmd": [_MCP_RS_PYTHON, "-c", "from mcp_redshift.server import main; main()"],
         "port": 7010,
         "env_extra": {
             "MCP_REDSHIFT_TRANSPORT": "streamable-http",
@@ -80,7 +85,7 @@ MCP_SERVER_PROCS = [
     },
     {
         "name": "MCP S3 Server",
-        "cmd": [sys.executable, "-c", "from mcp_s3.server import main; main()"],
+        "cmd": [_MCP_S3_PYTHON, "-c", "from mcp_s3.server import main; main()"],
         "port": 7020,
         "env_extra": {
             "MCP_S3_TRANSPORT": "streamable-http",
