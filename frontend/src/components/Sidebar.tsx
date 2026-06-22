@@ -165,11 +165,19 @@ function DeleteIcon() {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m16-6h-4a2 2 0 00-2 2v4M9 3a2 2 0 012-2h2a2 2 0 012 2m0 0v4m0-6v4m0 10v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2m16 0V7a2 2 0 00-2-2h-4a2 2 0 00-2 2v10a2 2 0 002 2h4a2 2 0 002-2z" />
+    </svg>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function ThreadHistoryItem({ thread }: { thread: ThreadSummary }) {
+function ThreadHistoryItem({ thread, deleteMode, isSelected, onToggleSelect }: { thread: ThreadSummary; deleteMode: boolean; isSelected: boolean; onToggleSelect: (id: string) => void }) {
   const loadChatThread = useSessionStore((s) => s.loadChatThread);
   const deleteChatThread = useSessionStore((s) => s.deleteChatThread);
   const renameChatThread = useSessionStore((s) => s.renameChatThread);
@@ -184,6 +192,33 @@ function ThreadHistoryItem({ thread }: { thread: ThreadSummary }) {
     setRenaming(false);
     setMenuOpen(false);
   };
+
+  if (deleteMode) {
+    return (
+      <li className="flex items-center gap-2 rounded px-3 py-2 text-sm hover:bg-white/10 transition-colors duration-100">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onToggleSelect(thread.id)}
+          className="h-4 w-4 cursor-pointer accent-accent-primary"
+          aria-label={`Select ${thread.firstMessage}`}
+        />
+        <label
+          onClick={() => onToggleSelect(thread.id)}
+          className="flex-1 cursor-pointer text-text-inverse"
+        >
+          <p className="truncate font-medium text-sm pr-6">
+            {thread.firstMessage.length > 35
+              ? thread.firstMessage.slice(0, 35) + '…'
+              : thread.firstMessage}
+          </p>
+          <p className="text-xs text-text-inverse/60 mt-0.5">
+            {formatTimestamp(thread.lastActivity)}
+          </p>
+        </label>
+      </li>
+    );
+  }
 
   return (
     <li className="group relative rounded px-3 py-2 text-sm hover:bg-white/10 cursor-pointer transition-colors duration-100">
@@ -300,11 +335,16 @@ export function Sidebar() {
   const chatThread = useSessionStore((s) => s.chatThread);
   const loadSavedPrompt = useSessionStore((s) => s.loadSavedPrompt);
   const deleteSavedPrompt = useSessionStore((s) => s.deleteSavedPrompt);
+  const deleteChatThreads = useSessionStore((s) => s.deleteChatThreads);
+  const clearAllChatHistory = useSessionStore((s) => s.clearAllChatHistory);
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingLoadId, setPendingLoadId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(true);
   const [savedPromptsOpen, setSavedPromptsOpen] = useState(true);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   // Delete confirmation
   const handleDeleteRequest = (id: string) => {
@@ -407,6 +447,17 @@ export function Sidebar() {
         >
           <ScheduleIcon />
         </div>
+
+        {/* Delete Chats */}
+        <button
+          type="button"
+          onClick={() => setDeleteMode(true)}
+          className="rounded p-2 text-text-inverse/70 hover:bg-white/10 hover:text-text-inverse transition-colors"
+          aria-label="Delete chats"
+          title="Delete Chats"
+        >
+          <TrashIcon />
+        </button>
       </aside>
     );
   }
@@ -459,7 +510,21 @@ export function Sidebar() {
               ) : (
                 <ul className="space-y-0.5" role="list" aria-label="Chat history list">
                   {chatHistory.slice(0, 50).map((thread) => (
-                    <ThreadHistoryItem key={thread.id} thread={thread} />
+                    <ThreadHistoryItem
+                      key={thread.id}
+                      thread={thread}
+                      deleteMode={deleteMode}
+                      isSelected={selectedForDelete.has(thread.id)}
+                      onToggleSelect={(id) => {
+                        const newSelected = new Set(selectedForDelete);
+                        if (newSelected.has(id)) {
+                          newSelected.delete(id);
+                        } else {
+                          newSelected.add(id);
+                        }
+                        setSelectedForDelete(newSelected);
+                      }}
+                    />
                   ))}
                 </ul>
               )}
@@ -505,6 +570,70 @@ export function Sidebar() {
             <div />
           </DropdownSection>
         </div>
+
+        {/* Footer: Delete Button */}
+        {!deleteMode && (
+          <div className="border-t border-white/10 px-2 py-2">
+            <button
+              type="button"
+              onClick={() => setDeleteMode(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600/20 px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-600/30 transition-colors"
+              aria-label="Delete chats"
+            >
+              <TrashIcon />
+              <span>Delete Chats</span>
+            </button>
+          </div>
+        )}
+
+        {/* Footer: Delete Mode Controls */}
+        {deleteMode && (
+          <div className="border-t border-white/10 px-2 py-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selectedForDelete.size === chatHistory.length && chatHistory.length > 0}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedForDelete(new Set(chatHistory.map((h) => h.id)));
+                  } else {
+                    setSelectedForDelete(new Set());
+                  }
+                }}
+                className="h-4 w-4 cursor-pointer accent-accent-primary"
+                aria-label="Select all chats"
+                disabled={chatHistory.length === 0}
+              />
+              <label className="flex-1 text-xs text-text-inverse/70 cursor-pointer">
+                Select All ({selectedForDelete.size} of {chatHistory.length})
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteMode(false);
+                  setSelectedForDelete(new Set());
+                }}
+                className="flex-1 rounded-md px-3 py-2 text-xs font-medium text-text-inverse/70 hover:bg-white/10 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedForDelete.size > 0) {
+                    setShowBulkDeleteConfirm(true);
+                  }
+                }}
+                disabled={selectedForDelete.size === 0}
+                className="flex-1 rounded-md bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Delete ({selectedForDelete.size})
+              </button>
+            </div>
+          </div>
+        )}
       </aside>
 
       {/* Delete Confirmation Modal */}
@@ -579,6 +708,49 @@ export function Sidebar() {
                 className="rounded-md bg-accent-primary px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent-primary"
               >
                 Load
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm bulk delete chats"
+        >
+          <div className="mx-4 w-full max-w-sm rounded-lg bg-bg-secondary p-6 shadow-panel">
+            <h3 className="text-sm font-semibold text-text-primary">
+              Delete Selected Chats
+            </h3>
+            <p className="mt-2 text-sm text-text-secondary">
+              Are you sure you want to delete <span className="font-medium">{selectedForDelete.size} chat{selectedForDelete.size !== 1 ? 's' : ''}</span>?
+              This action cannot be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBulkDeleteConfirm(false);
+                }}
+                className="rounded-md px-3 py-2 text-sm font-medium text-text-secondary hover:bg-bg-input"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteChatThreads(Array.from(selectedForDelete));
+                  setDeleteMode(false);
+                  setSelectedForDelete(new Set());
+                  setShowBulkDeleteConfirm(false);
+                }}
+                className="rounded-md bg-status-error px-3 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-status-error"
+              >
+                Delete
               </button>
             </div>
           </div>

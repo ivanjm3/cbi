@@ -94,78 +94,38 @@ function RenderChartJs({ config, fullscreen }: { config: { type: string; data: R
     return {
       ...baseOptions,
       responsive: true,
-      maintainAspectRatio: !fullscreen,
-      aspectRatio: 2,
-      // Ensure proper scaling on resize
-      onResize: (chart: any) => {
-        // Force chart redraw on resize
-        if (chart && chart.resize) {
-          chart.resize();
-        }
-      },
-      // Plugin options for responsive behavior
+      maintainAspectRatio: false,
       plugins: {
         ...(baseOptions.plugins || {}),
-        // Disable legend animation to prevent layout shifts
         legend: {
           ...(baseOptions.plugins?.legend || {}),
           labels: {
             ...(baseOptions.plugins?.legend?.labels || {}),
             usePointStyle: true,
-            padding: 15,
+            padding: 12,
             boxWidth: 8,
             boxHeight: 8,
           },
         },
       },
-      // Ensure animations don't interfere with sizing
-      animation: {
-        ...(baseOptions.animation || {}),
-        animateRotate: true,
-        animateScale: false,
-      },
       layout: {
         ...(baseOptions.layout || {}),
-        padding: {
-          ...(baseOptions.layout?.padding || {}),
-          top: 10,
-          bottom: 10,
-          left: 10,
-          right: 10,
-        },
+        padding: { top: 8, bottom: 8, left: 8, right: 8 },
       },
     };
   }, [config.options, fullscreen]);
 
   return (
     <div
-      className="w-full h-full flex flex-col items-center justify-center"
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        minHeight: '300px',
-        overflow: 'hidden',
-      }}
+      className="w-full relative"
+      style={{ minHeight: fullscreen ? '400px' : '280px', height: fullscreen ? '80vh' : '340px' }}
       aria-label={`${config.type} chart`}
     >
-      {/* Wrapper ensures chart scales with container and doesn't overflow */}
-      <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '100%',
-          minHeight: '300px',
-          maxWidth: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <Chart
-          type={config.type as any}
-          data={config.data as any}
-          options={enhancedOptions as any}
-        />
-      </div>
+      <Chart
+        type={config.type as any}
+        data={config.data as any}
+        options={enhancedOptions as any}
+      />
     </div>
   );
 }

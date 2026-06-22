@@ -16,6 +16,7 @@
 
 import { useSessionStore } from '../store/sessionStore';
 import type { TransparencyData } from '../types';
+import { ChatInput } from './ChatInput';
 
 // ---------------------------------------------------------------------------
 // Sub-components for each section
@@ -185,6 +186,11 @@ export function TraceabilityPanel() {
           />
         </div>
       )}
+
+      {/* Search/Filter input at the bottom */}
+      <div className="border-t border-border-default p-3">
+        <ChatInput />
+      </div>
     </aside>
   );
 }

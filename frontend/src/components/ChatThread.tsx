@@ -156,7 +156,7 @@ function VisualizationGrid({
     );
   }
 
-  // For 3+ cards: arrange in rows of 2
+  // For 3+ cards: arrange in responsive rows of 2
   const rows: { message: ChatMessage; index: number; card: CardState }[][] = [];
   for (let i = 0; i < count; i += 2) {
     rows.push(cardMessages.slice(i, i + 2));
@@ -165,7 +165,7 @@ function VisualizationGrid({
   return (
     <div className="flex flex-col gap-4">
       {rows.map((row, rowIdx) => (
-        <div key={rowIdx} className="grid grid-cols-2 gap-4">
+        <div key={rowIdx} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {row.map(({ message, index, card }) => (
             <div key={message.id} className="min-w-0">
               <DraggableCard card={card} index={index} />

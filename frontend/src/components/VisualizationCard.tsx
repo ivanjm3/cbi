@@ -71,8 +71,8 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
     [card.id, setActiveCard],
   );
 
-  // Width style based on card's width setting
-  const widthStyle = card.width === '50%' ? { width: '50%' } : { width: '100%' };
+  // Width style based on card's width setting — responsive
+  const widthClass = card.width === '50%' ? 'w-full md:w-1/2' : 'w-full';
 
   return (
     <div
@@ -86,11 +86,11 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
       className={[
         'relative flex flex-col rounded-lg border bg-bg-secondary',
         'transition-shadow duration-200 cursor-pointer',
+        widthClass,
         isActive
           ? 'border-accent-primary shadow-card-hover ring-1 ring-accent-primary/20'
           : 'border-border-default shadow-card hover:shadow-card-hover',
       ].join(' ')}
-      style={widthStyle}
     >
       {/* Visualization opt-in prompt */}
       <VisualizationPrompt card={card} />
@@ -127,13 +127,8 @@ export function VisualizationCard({ card, dragHandleRef }: VisualizationCardProp
         {/* Chart renderer - with responsive container */}
         <div 
           ref={chartRef} 
-          className="flex-1 min-h-0 w-full overflow-hidden flex flex-col justify-center"
-          style={{
-            flex: 1,
-            minHeight: 0,
-            width: '100%',
-            position: 'relative',
-          }}
+          className="flex-1 min-h-0 w-full overflow-hidden"
+          style={{ minHeight: '280px' }}
         >
           <ChartRenderer
             renderedOutput={card.renderedOutput}

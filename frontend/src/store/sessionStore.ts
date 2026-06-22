@@ -370,20 +370,31 @@ export const useSessionStore = create<SessionState>()(
 
       cancelQuery: async () => {
         const state = get();
-        if (!state._activeAbortController || !state._activeCorrelationId) {
+        if (!state._activeAbortController && !state._activeCorrelationId) {
           return; // No active query to cancel
         }
 
         // Abort the in-flight request
-        state._activeAbortController.abort();
+        if (state._activeAbortController) {
+          state._activeAbortController.abort();
+        }
 
-        // Send cancellation request to backend
-        const { cancelQuery: cancelQueryAPI } = await import('../api/queryApi');
-        await cancelQueryAPI(state._activeCorrelationId);
+        // Send cancellation request to backend (if we have a correlation ID)
+        if (state._activeCorrelationId) {
+          const { cancelQuery: cancelQueryAPI } = await import('../api/queryApi');
+          await cancelQueryAPI(state._activeCorrelationId);
+        }
+
+        // Reset all strand loading states
+        const resetStrandLoading: Record<string, boolean> = {};
+        for (const key of Object.keys(state.strandLoading)) {
+          resetStrandLoading[key] = false;
+        }
 
         // Reset state
         set({
           loading: false,
+          strandLoading: resetStrandLoading,
           _activeAbortController: null,
           _activeCorrelationId: null,
         });
@@ -569,6 +580,20 @@ export const useSessionStore = create<SessionState>()(
         const state = get();
         set({
           chatHistory: state.chatHistory.filter((t) => t.id !== id),
+        });
+      },
+
+      deleteChatThreads: (ids: string[]) => {
+        const state = get();
+        const idsSet = new Set(ids);
+        set({
+          chatHistory: state.chatHistory.filter((t) => !idsSet.has(t.id)),
+        });
+      },
+
+      clearAllChatHistory: () => {
+        set({
+          chatHistory: [],
         });
       },
 

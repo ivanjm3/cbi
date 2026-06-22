@@ -1,7 +1,7 @@
 /**
  * App shell with professional BI layout — full integration wiring.
  *
- * Layout: Sidebar (260px/48px) | MainContent (fluid) | StatsPanel | TraceabilityPanel (360px, hidden)
+ * Layout: Sidebar (260px/48px) | MainContent (fluid) | TraceabilityPanel (360px, hidden)
  * MainContent contains: ChatThread + FooterBar + ChatInput stacked vertically.
  *
  * Connections:
@@ -27,7 +27,6 @@ import { ChatThread } from './components/ChatThread';
 import { FooterBar } from './components/FooterBar';
 import { ChatInput } from './components/ChatInput';
 import { TraceabilityPanel } from './components/TraceabilityPanel';
-import { StatsPanel } from './components/StatsPanel';
 import { SaveSessionModal } from './components/SaveSessionModal';
 
 /**
@@ -152,11 +151,8 @@ function App() {
         <FooterBar />
 
         {/* Chat input — floating at bottom center (Req 2.2) */}
-        <ChatInput />
+        {!traceabilityPanelVisible && <ChatInput />}
       </main>
-
-      {/* Stats Panel (right rail) — collapsible (Req 7.1) */}
-      <StatsPanel />
 
       {/* Traceability Panel (right) — 360px, hidden by default (Req 3.1, 3.4) */}
       {traceabilityPanelVisible && <TraceabilityPanel />}
