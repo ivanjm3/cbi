@@ -2,6 +2,10 @@
 
 Resolves entity_refs via the Schema Registry, selects a query strategy based
 on query_type, and produces parameterized SQL that is safe from injection.
+
+IMPORTANT: All error messages and text responses must be plain text only. Never use 
+markdown syntax, formatting, code blocks, headers, bold, italics, or any other markdown 
+elements. Use simple plain text format exclusively.
 """
 import logging
 from typing import Any

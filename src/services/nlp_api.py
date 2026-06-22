@@ -301,6 +301,8 @@ async def follow_up_query_endpoint(request: Request, body: FollowUpRequest) -> J
     # Call LLM to generate explanation
     prompt = f"""You are a helpful data analyst assistant. The user has a visualization/chart and is asking a follow-up question about it.
 
+IMPORTANT: All responses must be plain text only. Never use markdown syntax, formatting, code blocks, headers, bold, italics, or any other markdown elements. Use simple plain text format exclusively.
+
 Context:
 {context_str}
 {data_context}

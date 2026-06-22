@@ -14,10 +14,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Classification prompt for the LLM
-CLASSIFICATION_PROMPT = """You are a query classifier
+CLASSIFICATION_PROMPT = """You are a query classifier.
 Given a user's query, determine if the response should be:
 - "text": The user expects a textual answer (a number, summary, explanation, or list)
 - "chart": The user expects a visual chart or graph
+
+IMPORTANT: All responses must be plain text only. Never use markdown syntax or formatting.
 
 Rules:
 - If the query asks for a single value (total, count, average, sum), respond "text"
@@ -268,10 +270,12 @@ class TextSummaryGenerator:
 
             prompt = f"""Given this data from a business query, provide a concise text answer.
 
+IMPORTANT: All responses must be plain text only. Never use markdown syntax, formatting, code blocks, headers, bold, italics, or any other markdown elements. Use simple plain text format exclusively.
+
 Query: "{query}"
 Data: {json.dumps(filtered_data, default=str)[:2000]}
 
-Provide a direct, concise answer to the query. If it asks for a total or count, give the number. If it asks for a list, provide the list. Keep it under 3 sentences unless a longer explanation is needed."""
+Provide a direct, concise answer to the query in plain text format. If it asks for a total or count, give the number. If it asks for a list, provide the list. Keep it under 3 sentences unless a longer explanation is needed."""
 
             response = client.invoke_model(
                 modelId=DEFAULT_MODEL_ID,

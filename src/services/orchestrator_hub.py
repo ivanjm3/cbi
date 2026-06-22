@@ -195,6 +195,10 @@ ORCHESTRATOR_SYSTEM_PROMPT = """\
 You are an Orchestrator Agent responsible for intelligently routing data queries \
 to the most relevant spoke agents.
 
+IMPORTANT: All responses must be returned as plain text only. Never use markdown syntax, \
+formatting, code blocks, headers, bold, italics, lists with *, -, or any other markdown \
+elements. Use simple plain text format only.
+
 Your workflow for each query:
 1. First, check the result cache using the provided cache key. If there's a \
 cache hit, return the cached response immediately.
