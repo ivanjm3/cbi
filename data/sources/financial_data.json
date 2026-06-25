@@ -3,7 +3,7 @@
   "description": "Quarterly sales revenue and order volume broken down by product category and region",
   "columns": ["quarter", "region", "category", "revenue", "orders", "avg_order_value", "return_rate"],
   "rows": [
-    {"quarter": "Q1 2024", "region": "North America", "category": "Electronics", "revenue": 485000, "orders": 3200, "avg_order_value": 151.56, "return_rate": 0.08},
+    {"quarter": "Q1 2024", "region": "North America", "category": "Electronics", "revenue": 606250, "orders": 4000, "avg_order_value": 151.56, "return_rate": 0.08},
     {"quarter": "Q1 2024", "region": "North America", "category": "Office Furniture", "revenue": 312000, "orders": 890, "avg_order_value": 350.56, "return_rate": 0.04},
     {"quarter": "Q1 2024", "region": "North America", "category": "Office Supplies", "revenue": 98000, "orders": 4100, "avg_order_value": 23.90, "return_rate": 0.02},
     {"quarter": "Q1 2024", "region": "Europe", "category": "Electronics", "revenue": 320000, "orders": 2100, "avg_order_value": 152.38, "return_rate": 0.09},

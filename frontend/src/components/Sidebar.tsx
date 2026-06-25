@@ -16,6 +16,7 @@
  */
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSessionStore } from '../store/sessionStore';
 import { formatTimestamp } from '../utils/formatters';
 import type { SavedPrompt, ThreadSummary } from '../types';
@@ -327,6 +328,7 @@ function SavedPromptItem({
 // ---------------------------------------------------------------------------
 
 export function Sidebar() {
+  const navigate = useNavigate();
   const sidebarCollapsed = useSessionStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useSessionStore((s) => s.toggleSidebar);
   const startNewChat = useSessionStore((s) => s.startNewChat);
@@ -335,13 +337,13 @@ export function Sidebar() {
   const chatThread = useSessionStore((s) => s.chatThread);
   const loadSavedPrompt = useSessionStore((s) => s.loadSavedPrompt);
   const deleteSavedPrompt = useSessionStore((s) => s.deleteSavedPrompt);
-  const deleteChatThreads = useSessionStore((s) => s.deleteChatThreads);
-  const clearAllChatHistory = useSessionStore((s) => s.clearAllChatHistory);
+  const deleteChatThread = useSessionStore((s) => s.deleteChatThread);
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingLoadId, setPendingLoadId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(true);
   const [savedPromptsOpen, setSavedPromptsOpen] = useState(true);
+  const [scheduledReportsOpen, setScheduledReportsOpen] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(new Set());
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
@@ -380,6 +382,11 @@ export function Sidebar() {
 
   const cancelLoad = () => {
     setPendingLoadId(null);
+  };
+
+  // Delete multiple chats
+  const handleDeleteMultiple = (ids: string[]) => {
+    ids.forEach(id => deleteChatThread(id));
   };
 
   const pendingPrompt = pendingDeleteId
@@ -440,13 +447,15 @@ export function Sidebar() {
         </div>
 
         {/* Schedulability (disabled) */}
-        <div
-          className="rounded p-2 text-text-inverse/30 opacity-50 cursor-not-allowed"
+        <button
+          type="button"
+          onClick={() => navigate('/scheduled-reports')}
+          className="rounded p-2 text-text-inverse/70 hover:bg-white/10 hover:text-text-inverse transition-colors"
           aria-label="Scheduled Reports"
-          title="Coming soon — schedule recurring queries and reports"
+          title="Scheduled Reports"
         >
           <ScheduleIcon />
-        </div>
+        </button>
 
         {/* Delete Chats */}
         <button
@@ -558,16 +567,35 @@ export function Sidebar() {
             </div>
           </DropdownSection>
 
-          {/* Schedulability (disabled placeholder) — Dropdown */}
+          {/* Scheduled Reports — Dropdown */}
           <DropdownSection
             icon={<ScheduleIcon />}
             label="Scheduled Reports"
-            open={false}
-            onToggle={() => {}}
-            disabled={true}
-            disabledMessage="Coming soon — schedule recurring queries and reports"
+            open={scheduledReportsOpen}
+            onToggle={() => setScheduledReportsOpen(!scheduledReportsOpen)}
           >
-            <div />
+            <div className="px-1 pb-2">
+              <button
+                type="button"
+                onClick={() => navigate('/scheduled-reports')}
+                className="w-full text-left px-3 py-2 text-sm text-text-inverse/70 hover:text-text-inverse hover:bg-white/10 rounded transition-colors flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
+                View All Reports
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/scheduled-reports/new')}
+                className="w-full text-left px-3 py-2 text-sm text-text-inverse/70 hover:text-text-inverse hover:bg-white/10 rounded transition-colors flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Create New Report
+              </button>
+            </div>
           </DropdownSection>
         </div>
 
@@ -743,7 +771,7 @@ export function Sidebar() {
               <button
                 type="button"
                 onClick={() => {
-                  deleteChatThreads(Array.from(selectedForDelete));
+                  handleDeleteMultiple(Array.from(selectedForDelete));
                   setDeleteMode(false);
                   setSelectedForDelete(new Set());
                   setShowBulkDeleteConfirm(false);

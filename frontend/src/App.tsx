@@ -21,6 +21,7 @@
  */
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSessionStore } from './store/sessionStore';
 import { Sidebar } from './components/Sidebar';
 import { ChatThread } from './components/ChatThread';
@@ -85,10 +86,12 @@ function StorageErrorBanner() {
 }
 
 /**
- * Chat top bar with bookmark/save button.
+ * Chat top bar with bookmark/save and schedule buttons.
  * Only visible when there's an active chat with at least one visualization.
+ * Schedule button visible only when there are pinned cards.
  */
 function ChatTopBar({ onBookmark }: { onBookmark: () => void }) {
+  const navigate = useNavigate();
   const chatThread = useSessionStore((s) => s.chatThread);
   const cards = useSessionStore((s) => s.cards);
 
@@ -96,8 +99,48 @@ function ChatTopBar({ onBookmark }: { onBookmark: () => void }) {
   const hasCards = Object.keys(cards).length > 0;
   if (!hasCards || chatThread.length === 0) return null;
 
+  // Get all pinned card IDs for scheduling
+  const pinnedCardIds = Object.values(cards)
+    .filter((card) => card.pinned)
+    .map((card) => card.id);
+  const hasPinnedCards = pinnedCardIds.length > 0;
+
+  const handleScheduleChat = () => {
+    // Navigate to create scheduled report with all pinned viz IDs
+    const vizIds = pinnedCardIds.join(',');
+    navigate(`/scheduled-reports/new?viz_ids=${encodeURIComponent(vizIds)}`);
+  };
+
   return (
-    <div className="flex items-center justify-end px-4 py-2 border-b border-border-default bg-bg-secondary/50">
+    <div className="flex items-center justify-end gap-2 px-4 py-2 border-b border-border-default bg-bg-secondary/50">
+      {/* Schedule Chat button — only when pinned cards exist */}
+      {hasPinnedCards && (
+        <button
+          type="button"
+          onClick={handleScheduleChat}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-bg-input hover:text-accent-primary transition-colors"
+          aria-label="Schedule this chat"
+          title={`Schedule ${pinnedCardIds.length} pinned visualization${pinnedCardIds.length > 1 ? 's' : ''} for recurring execution`}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span>Schedule ({pinnedCardIds.length})</span>
+        </button>
+      )}
+
+      {/* Bookmark button */}
       <button
         type="button"
         onClick={onBookmark}

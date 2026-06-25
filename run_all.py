@@ -8,6 +8,7 @@ Services:
   - Orchestrator Hub:      port 8002
   - Guardrail Layer:       port 8003
   - Visualization Renderer: port 8004
+  - Scheduling API:        port 8005
   - MCP Redshift Server:   port 7010  (streamable-http, started in background)
   - MCP S3 Server:         port 7020  (streamable-http, started in background)
   - MCP Adapter Layer:     port 8012
@@ -28,18 +29,27 @@ import time
 os.environ.setdefault("USE_MCP_ADAPTER", "true")
 os.environ.setdefault("USE_MCP_REDSHIFT", "true")
 os.environ.setdefault("USE_MCP_S3", "true")
-os.environ.setdefault("MCP_ADAPTER_REDSHIFT_TRANSPORT", "streamable-http")
-os.environ.setdefault("MCP_ADAPTER_REDSHIFT_HOST", "localhost")
-os.environ.setdefault("MCP_ADAPTER_REDSHIFT_PORT", "7010")
-os.environ.setdefault("MCP_ADAPTER_S3_TRANSPORT", "streamable-http")
-os.environ.setdefault("MCP_ADAPTER_S3_HOST", "localhost")
-os.environ.setdefault("MCP_ADAPTER_S3_PORT", "7020")
+# Force localhost for MCP servers since they run locally alongside this process
+os.environ["MCP_ADAPTER_REDSHIFT_TRANSPORT"] = "streamable-http"
+os.environ["MCP_ADAPTER_REDSHIFT_HOST"] = "localhost"
+os.environ["MCP_ADAPTER_REDSHIFT_PORT"] = "7010"
+os.environ["MCP_ADAPTER_S3_TRANSPORT"] = "streamable-http"
+os.environ["MCP_ADAPTER_S3_HOST"] = "localhost"
+os.environ["MCP_ADAPTER_S3_PORT"] = "7020"
 # MCP server transport settings
 os.environ.setdefault("MCP_REDSHIFT_TRANSPORT", "streamable-http")
 os.environ.setdefault("MCP_REDSHIFT_HTTP_PORT", "7010")
 os.environ.setdefault("MCP_S3_TRANSPORT", "streamable-http")
 os.environ.setdefault("MCP_S3_HTTP_PORT", "7020")
 os.environ.setdefault("MCP_S3_DATASET_REGISTRY_PATH", "mcps/mcp-s3/test_registry.yaml")
+
+# Propagate the active AWS profile (e.g. an SSO profile from `aws configure sso`)
+# to the MCP S3 server so credential resolution doesn't fall back to stale
+# static keys in ~/.aws/credentials. Set AWS_PROFILE before running, e.g.:
+#   AWS_PROFILE=PowerUserAccess-654654478821 python run_all.py
+_aws_profile = os.environ.get("AWS_PROFILE")
+if _aws_profile:
+    os.environ.setdefault("MCP_S3_AWS_PROFILE", _aws_profile)
 # ─────────────────────────────────────────────────────────────────────────────
 
 import httpx
@@ -63,6 +73,7 @@ CORE_SERVICES = [
     {"name": "Orchestrator Hub",       "module": "src.services.orchestrator_api:app", "port": 8002},
     {"name": "Guardrail Layer",        "module": "src.services.guardrail_api:app",    "port": 8003},
     {"name": "Visualization Renderer", "module": "src.services.visualization_api:app","port": 8004},
+    {"name": "Scheduling API",         "module": "src.services.scheduling_api:app",   "port": 8005},
     {"name": "Spoke Agent",            "module": "src.agents.spoke_agent:app",        "port": 8010},
     {"name": "Redshift Spoke Agent",   "module": "src.agents.redshift_spoke_agent:app","port": 8011},
 ]

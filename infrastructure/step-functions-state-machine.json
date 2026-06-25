@@ -1,0 +1,141 @@
+{
+  "Comment": "Scheduled Report Executor State Machine - Orchestrates query execution and result persistence",
+  "StartAt": "ValidateReport",
+  "States": {
+    "ValidateReport": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:getItem",
+      "Parameters": {
+        "TableName": "scheduled-reports",
+        "Key": {
+          "report_id": {
+            "S.$": "$.report_id"
+          }
+        }
+      },
+      "Next": "CheckReportActive",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ExecutionFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "CheckReportActive": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Item.is_active.BOOL",
+          "BooleanEquals": false,
+          "Next": "ExecutionSkipped"
+        }
+      ],
+      "Default": "FetchReportConfig"
+    },
+    "FetchReportConfig": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:fetch-report-config",
+      "Parameters": {
+        "report_id.$": "$.report_id"
+      },
+      "Next": "FetchChatQuery",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 5.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ExecutionFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "FetchChatQuery": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:fetch-chat-query",
+      "Parameters": {
+        "chat_id.$": "$.config.original_chat_id"
+      },
+      "Next": "ExecuteQuery",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 5.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ExecutionFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "ExecuteQuery": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:execute-scheduled-query",
+      "Parameters": {
+        "report_id.$": "$.report_id",
+        "chat_id.$": "$.config.original_chat_id",
+        "pinned_visualization_ids.$": "$.config.pinned_visualization_ids",
+        "structured_intents.$": "$.config.structured_intents",
+        "execution_timestamp.$": "$$.State.EnteredTime"
+      },
+      "Next": "StoreExecutionResult",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 5.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ExecutionFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "StoreExecutionResult": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:store-execution-result",
+      "Parameters": {
+        "report_id.$": "$.report_id",
+        "execution_timestamp.$": "$.execution_timestamp",
+        "status.$": "$.query_result.status",
+        "rendered_output.$": "$.query_result.rendered_output",
+        "query_latency_ms.$": "$.query_result.query_latency_ms",
+        "error_message.$": "$.query_result.error_message"
+      },
+      "Next": "ExecutionSucceeded",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ExecutionFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "ExecutionSucceeded": {
+      "Type": "Succeed"
+    },
+    "ExecutionFailed": {
+      "Type": "Fail",
+      "Error": "ScheduledReportExecutionFailed",
+      "Cause.$": "$.error.Cause"
+    },
+    "ExecutionSkipped": {
+      "Type": "Succeed"
+    }
+  }
+}

@@ -47,12 +47,12 @@ RUN /app/venv/bin/pip install --no-cache-dir "mcp>=1.0.0" || true
 # ─── Venv 2: MCP Redshift server (isolated) ─────────────────────────────────
 COPY mcps/mcp-redshift/ ./mcps/mcp-redshift/
 RUN python -m venv /app/venv-mcp-rs && \
-    /app/venv-mcp-rs/bin/pip install --no-cache-dir -e ./mcps/mcp-redshift
+    /app/venv-mcp-rs/bin/pip install --no-cache-dir --retries 3 --timeout 60 -e ./mcps/mcp-redshift
 
 # ─── Venv 3: MCP S3 server (isolated) ───────────────────────────────────────
 COPY mcps/mcp-s3/ ./mcps/mcp-s3/
 RUN python -m venv /app/venv-mcp-s3 && \
-    /app/venv-mcp-s3/bin/pip install --no-cache-dir -e ./mcps/mcp-s3
+    /app/venv-mcp-s3/bin/pip install --no-cache-dir --retries 3 --timeout 60 -e ./mcps/mcp-s3
 
 # ─── Copy remaining app code ────────────────────────────────────────────────
 COPY --from=frontend-build /frontend/dist ./frontend/dist/

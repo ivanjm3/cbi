@@ -22,6 +22,10 @@ from src.config import (
     S3_ONTOLOGY_PREFIX,
 )
 
+# Scheduled reports prefixes
+S3_SCHEDULED_REPORTS_PREFIX = "scheduled-reports/"
+S3_SCHEDULED_REPORTS_EXECUTIONS_PREFIX = "scheduled-reports/executions/"
+
 
 def get_s3_client_no_verify():
     """Get an S3 client matching the app's configuration.
@@ -94,10 +98,12 @@ def main():
     print("S3 setup complete!")
     print()
     print("Bucket structure:")
-    print(f"  s3://{S3_BUCKET}/ontology/         - Ontology definitions")
-    print(f"  s3://{S3_BUCKET}/history/          - Query history records")
-    print(f"  s3://{S3_BUCKET}/config/           - Guardrail rules")
-    print(f"  s3://{S3_BUCKET}/data-sources/     - Spoke agent data files")
+    print(f"  s3://{S3_BUCKET}/ontology/                 - Ontology definitions")
+    print(f"  s3://{S3_BUCKET}/history/                  - Query history records")
+    print(f"  s3://{S3_BUCKET}/config/                   - Guardrail rules")
+    print(f"  s3://{S3_BUCKET}/data-sources/             - Spoke agent data files")
+    print(f"  s3://{S3_BUCKET}/scheduled-reports/        - Scheduled report configs")
+    print(f"  s3://{S3_BUCKET}/scheduled-reports/executions/ - Execution history records")
 
 
 if __name__ == "__main__":

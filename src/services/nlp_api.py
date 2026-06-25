@@ -30,6 +30,7 @@ from src.config import (
     GUARDRAIL_URL,
     NLP_PORT,
     ORCHESTRATOR_URL,
+    SCHEDULING_PORT,
     VIZ_URL,
 )
 from src.models.shared import NLPError, StructuredIntent
@@ -408,10 +409,15 @@ async def serve_frontend() -> FileResponse:
     """
     index_path = _FRONTEND_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(index_path, media_type="text/html")
+        return FileResponse(
+            index_path,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     return FileResponse(
         Path(__file__).resolve().parent.parent.parent / "frontend" / "index.html",
         media_type="text/html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
 
@@ -604,6 +610,10 @@ async def query_endpoint(request: Request, body: QueryRequest) -> JSONResponse:
         # Continue anyway - validation is optional
     
     headers = propagation_headers(correlation_id)
+
+    # Propagate cache-skip signal from scheduled executions
+    if request.headers.get("x-skip-cache") == "true":
+        headers["X-Skip-Cache"] = "true"
 
     # Step 2: Call Orchestrator Hub (with disconnect detection)
     step_start = time.monotonic()
@@ -1089,6 +1099,57 @@ async def re_render_visualization(request: Request) -> JSONResponse:
         )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Proxy: Scheduling API routes (port 8005) exposed through NLP (port 8001)
+# so the frontend can reach them on the same origin in production.
+# MUST be registered BEFORE the SPA catch-all to take priority.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.api_route("/scheduled-reports{path:path}", methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_scheduling_api(request: Request, path: str = ""):
+    """Forward /scheduled-reports/* to the Scheduling API (localhost:8005).
+
+    Only proxies API calls (JSON requests). Browser navigation (Accept: text/html)
+    gets the SPA index.html instead.
+    """
+    # If browser is navigating (no X-User-ID, no JSON content-type), serve SPA
+    has_user_id = "x-user-id" in {k.lower() for k in request.headers.keys()}
+    has_json_accept = "application/json" in request.headers.get("accept", "")
+    is_api_call = has_user_id or has_json_accept or request.method != "GET"
+
+    if not is_api_call:
+        index_path = _FRONTEND_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(
+                index_path,
+                media_type="text/html",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
+
+    target = f"http://localhost:{SCHEDULING_PORT}/scheduled-reports{path}"
+    if request.url.query:
+        target += f"?{request.url.query}"
+
+    body = await request.body()
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    async with httpx.AsyncClient(verify=False, timeout=300.0) as client:
+        resp = await client.request(
+            method=request.method,
+            url=target,
+            content=body,
+            headers=headers,
+        )
+
+    from starlette.responses import Response
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        headers=dict(resp.headers),
+    )
+
+
 # Mount static files for the frontend SPA (Vite build output)
 # This must be AFTER all API routes so they take priority
 from fastapi.staticfiles import StaticFiles
@@ -1102,7 +1163,11 @@ if _FRONTEND_DIR.exists() and _FRONTEND_DIR.is_dir():
         index_path = _FRONTEND_DIR / "index.html"
         if (file_path := _FRONTEND_DIR / path).exists() and file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(index_path, media_type="text/html")
+        return FileResponse(
+            index_path,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
 
 
 if __name__ == "__main__":

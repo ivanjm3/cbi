@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0">
+  <diagram id="arch-diagram" name="Conversational BI + MCP Servers - AWS Architecture">
+    <mxGraphModel dx="1911" dy="2113" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- AWS Cloud Background -->
+        <mxCell id="aws-cloud" parent="1" style="shape=cloudCallout;dx=40;dy=40;fillColor=#FF9900;fillOpacity=0.1;strokeColor=#FF9900;strokeWidth=2;fontColor=#000;fontSize=16;fontStyle=1;direction=south;" value="AWS Cloud" vertex="1">
+          <mxGeometry height="1800" width="900" x="500" y="-350" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- LAYER 1: CLIENT & ENTRY POINT -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="client" parent="1" style="shape=process;fillColor=#4DD0E1;strokeColor=#0097A7;strokeWidth=2;fontColor=#fff;fontSize=12;fontStyle=1" value="Client App" vertex="1">
+          <mxGeometry height="60" width="150" x="150" y="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="browser" parent="1" style="shape=process;fillColor=#64B5F6;strokeColor=#1976D2;strokeWidth=2;fontColor=#fff;fontSize=12;fontStyle=1" value="Web Browser / SPA" vertex="1">
+          <mxGeometry height="60" width="150" x="400" y="120" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- LAYER 2: NLP API (Entry Point, Health Check Target) -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="nlp-api" parent="1" style="rounded=1;fillColor=#81C784;strokeColor=#388E3C;strokeWidth=2;fontColor=#fff;fontSize=11;fontStyle=1;align=center" value="NLP API&#xa;(Port 8001)&#xa;Entry Point&#xa;Health Check" vertex="1">
+          <mxGeometry height="100" width="140" x="250" y="240" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow: Clients to NLP API -->
+        <mxCell id="edge1" edge="1" parent="1" source="client" target="nlp-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge2" edge="1" parent="1" source="browser" target="nlp-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- LAYER 3: CORE SERVICES -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="nlp-translator" parent="1" style="rounded=1;fillColor=#FFB74D;strokeColor=#F57C00;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="NLP Translator&#xa;nlp_translator.py" vertex="1">
+          <mxGeometry height="80" width="120" x="80" y="400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="guardrail" parent="1" style="rounded=1;fillColor=#BA68C8;strokeColor=#7B1FA2;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="Guardrail Layer&#xa;Port 8003" vertex="1">
+          <mxGeometry height="80" width="120" x="220" y="400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="orchestrator" parent="1" style="rounded=1;fillColor=#EF5350;strokeColor=#C62828;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="Orchestrator Hub&#xa;Port 8002" vertex="1">
+          <mxGeometry height="80" width="120" x="360" y="400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="viz-api" parent="1" style="rounded=1;fillColor=#29B6F6;strokeColor=#01579B;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="Visualization API&#xa;Port 8004" vertex="1">
+          <mxGeometry height="80" width="120" x="500" y="400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="scheduling-api" parent="1" style="rounded=1;fillColor=#26A69A;strokeColor=#004D40;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="Scheduling API&#xa;Port 8005" vertex="1">
+          <mxGeometry height="80" width="120" x="640" y="400" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows: NLP API to Core Services -->
+        <mxCell id="edge3" edge="1" parent="1" source="nlp-api" target="nlp-translator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge4" edge="1" parent="1" source="nlp-api" target="guardrail">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge5" edge="1" parent="1" source="nlp-api" target="orchestrator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge6" edge="1" parent="1" source="nlp-api" target="viz-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge7" edge="1" parent="1" source="orchestrator" target="scheduling-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- LAYER 4: SPOKE AGENTS -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="spoke-json" parent="1" style="rounded=1;fillColor=#AB47BC;strokeColor=#4A148C;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="Spoke Agent&#xa;(JSON/CSV)&#xa;Port 8010" vertex="1">
+          <mxGeometry height="80" width="120" x="80" y="560" as="geometry" />
+        </mxCell>
+
+        <mxCell id="spoke-redshift" parent="1" style="rounded=1;fillColor=#7E57C2;strokeColor=#311B92;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="Spoke Agent&#xa;(Redshift)&#xa;Port 8011" vertex="1">
+          <mxGeometry height="80" width="120" x="220" y="560" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mcp-adapter" parent="1" style="rounded=1;fillColor:#FF7043;strokeColor:#BF360C;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="MCP Adapter&#xa;Port 8012" vertex="1">
+          <mxGeometry height="80" width="120" x="360" y="560" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows: Orchestrator to Spoke Agents -->
+        <mxCell id="edge8" edge="1" parent="1" source="orchestrator" target="spoke-json">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge9" edge="1" parent="1" source="orchestrator" target="spoke-redshift">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge10" edge="1" parent="1" source="orchestrator" target="mcp-adapter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- LAYER 5: MCP SERVERS (Backend Services) -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="mcp-redshift" parent="1" style="rounded=1;fillColor=#FF8A65;strokeColor:#D84315;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="MCP Redshift Server&#xa;Port 7010" vertex="1">
+          <mxGeometry height="80" width="120" x="200" y="700" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mcp-s3" parent="1" style="rounded=1;fillColor:#42A5F5;strokeColor=#0D47A1;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="MCP S3 Server&#xa;Port 7020" vertex="1">
+          <mxGeometry height="80" width="120" x="340" y="700" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows: MCP Adapter to MCP Servers -->
+        <mxCell id="edge11" edge="1" parent="1" source="mcp-adapter" target="mcp-redshift">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge12" edge="1" parent="1" source="mcp-adapter" target="mcp-s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- LAYER 6: AWS SERVICES (Data & Backend) WITH ICONS -->
+        <!-- ============================================================================ -->
+
+        <!-- Amazon Redshift Icon -->
+        <mxCell id="aws-redshift-icon" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.redshift;" value="" vertex="1">
+          <mxGeometry height="78" width="78" x="120" y="840" as="geometry" />
+        </mxCell>
+
+        <!-- Amazon S3 Icon -->
+        <mxCell id="aws-s3-icon" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#7AA116;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;" value="" vertex="1">
+          <mxGeometry height="78" width="78" x="262" y="840" as="geometry" />
+        </mxCell>
+
+        <!-- DynamoDB Icon (using a colored box instead) -->
+        <mxCell id="aws-dynamodb-icon" parent="1" style="rounded=1;fillColor=#527FFF;strokeColor=#ffffff;strokeWidth=2;fontSize=10;fontStyle=0;fontColor=#fff;align=center;verticalAlign=middle;" value="DynamoDB" vertex="1">
+          <mxGeometry height="78" width="78" x="404" y="840" as="geometry" />
+        </mxCell>
+
+        <!-- EventBridge Scheduler Icon -->
+        <mxCell id="aws-scheduler-icon" parent="1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.eventbridge_scheduler;" value="" vertex="1">
+          <mxGeometry height="78" width="78" x="421" y="830" as="geometry" />
+        </mxCell>
+
+        <!-- Step Functions Icon -->
+        <mxCell id="aws-stepfn-icon" parent="1" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.step_functions;" value="" vertex="1">
+          <mxGeometry height="78" width="78" x="640" y="840" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows from MCP Servers to AWS Services -->
+        <mxCell id="edge13" edge="1" parent="1" source="mcp-redshift">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="174.28571428571422" y="839.9999999999998" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge14" edge="1" parent="1" source="mcp-s3">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="314.285714285714" y="839.9999999999998" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Arrows from Scheduling API to AWS Services -->
+        <mxCell id="edge15" edge="1" parent="1" source="scheduling-api" style="entryX=1;entryY=0;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="340" y="839.9999999999998" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge16" edge="1" parent="1" source="scheduling-api">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="481.81818181818176" y="839.9999999999998" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Arrow: EventBridge to Step Functions -->
+        <mxCell id="edge17" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="520" y="879.9999999999998" as="sourcePoint" />
+            <mxPoint x="640" y="879.9999999999998" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Arrow: Step Functions back to API for execution -->
+        <mxCell id="edge18" edge="1" parent="1" target="nlp-api">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="674.2372881355932" y="839.9999999999998" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- CACHING LAYER -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="cache" parent="1" style="shape=rectangle;fillColor=#FFCA28;strokeColor=#F57F17;strokeWidth=2;fontColor=#000;fontSize=10;fontStyle=1;align=center" value="Result Cache&#xa;(LRU + TTL)" vertex="1">
+          <mxGeometry height="80" width="120" x="800" y="400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge19" edge="1" parent="1" source="orchestrator" target="cache">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- OBSERVABILITY -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="logs" parent="1" style="rounded=1;fillColor=#4DD0E1;strokeColor=#00838F;strokeWidth=2;fontColor=#fff;fontSize=10;fontStyle=1;align=center" value="CloudWatch Logs" vertex="1">
+          <mxGeometry height="80" width="120" x="950" y="400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge20" edge="1" parent="1" source="nlp-api" target="logs">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="950" y="400" as="entryPoint" />
+            <mxPoint x="300" y="350" as="exitPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- DATA FLOW LABELS -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="label1" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=9;fontStyle=1;fontColor=#333" value="1. Query" vertex="1">
+          <mxGeometry height="20" width="50" x="290" y="280" as="geometry" />
+        </mxCell>
+
+        <mxCell id="label2" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=9;fontStyle=1;fontColor=#333" value="2. Route &amp; Cache" vertex="1">
+          <mxGeometry height="20" width="80" x="300" y="350" as="geometry" />
+        </mxCell>
+
+        <mxCell id="label3" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=9;fontStyle=1;fontColor=#333" value="3. Dispatch to Agents" vertex="1">
+          <mxGeometry height="20" width="100" x="200" y="480" as="geometry" />
+        </mxCell>
+
+        <mxCell id="label4" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=9;fontStyle=1;fontColor=#333" value="4. MCP Tools" vertex="1">
+          <mxGeometry height="20" width="80" x="280" y="630" as="geometry" />
+        </mxCell>
+
+        <mxCell id="label5" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=9;fontStyle=1;fontColor=#333" value="5. Data Access" vertex="1">
+          <mxGeometry height="20" width="80" x="200" y="780" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================================ -->
+        <!-- LEGEND -->
+        <!-- ============================================================================ -->
+
+        <mxCell id="legend-bg" parent="1" style="shape=rectangle;fillColor=#FFF;fillOpacity=0.9;strokeColor=#999;strokeWidth=1;rounded=0" value="" vertex="1">
+          <mxGeometry height="780" width="700" x="1050" y="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-title" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=14;fontStyle=1;fontColor=#000;align=left" value="Architecture Overview" vertex="1">
+          <mxGeometry height="30" width="200" x="1070" y="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item1" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=10;fontColor=#000;align=left;verticalAlign=top" value="• NLP API: Entry point, query router&#xa;• Guardrail Layer: Input validation&#xa;• Orchestrator: Agent dispatcher&#xa;• Visualization: Report rendering&#xa;• Scheduling: Report scheduling&#xa;" vertex="1">
+          <mxGeometry height="100" width="650" x="1070" y="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item2" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=11;fontStyle=1;fontColor=#000;align=left" value="Spoke Agents:" vertex="1">
+          <mxGeometry height="25" width="200" x="1070" y="300" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item3" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=10;fontColor=#000;align=left;verticalAlign=top" value="• JSON/CSV Spoke: Local data handler&#xa;• Redshift Spoke: Query builder&#xa;• MCP Adapter: Tool coordination&#xa;" vertex="1">
+          <mxGeometry height="80" width="650" x="1070" y="330" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item4" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=11;fontStyle=1;fontColor=#000;align=left" value="MCP Servers:" vertex="1">
+          <mxGeometry height="25" width="200" x="1070" y="430" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item5" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=10;fontColor=#000;align=left;verticalAlign=top" value="• MCP Redshift: Query tool provider&#xa;• MCP S3: Data reading tool provider&#xa;• Transport: streamable-http&#xa;" vertex="1">
+          <mxGeometry height="80" width="650" x="1070" y="460" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item6" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=11;fontStyle=1;fontColor=#000;align=left" value="AWS Services:" vertex="1">
+          <mxGeometry height="25" width="200" x="1070" y="560" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item7" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=10;fontColor=#000;align=left;verticalAlign=top" value="• Redshift: Data warehouse queries&#xa;• S3: Data lake storage&#xa;• DynamoDB: Report metadata&#xa;• EventBridge Scheduler: Triggers&#xa;• Step Functions: Workflow orchestration&#xa;• CloudWatch: Logging &amp; monitoring&#xa;" vertex="1">
+          <mxGeometry height="120" width="650" x="1070" y="590" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item8" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=11;fontStyle=1;fontColor=#000;align=left" value="Key Features:" vertex="1">
+          <mxGeometry height="25" width="200" x="1070" y="730" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-item9" parent="1" style="text;html=1;fillColor=none;strokeColor=none;fontSize=10;fontColor=#000;align=left;verticalAlign=top" value="• Result caching (LRU + TTL)&#xa;• Correlation ID propagation&#xa;• Property-based testing&#xa;• Modular agents with MCP protocols&#xa;" vertex="1">
+          <mxGeometry height="80" width="650" x="1070" y="760" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

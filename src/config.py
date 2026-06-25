@@ -16,12 +16,16 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Disable SSL verification for all boto3/botocore calls
 # This is needed for environments with corporate proxies / self-signed certs
 os.environ.setdefault("AWS_VERIFY_SSL", "false")
+os.environ.setdefault("AWS_CA_BUNDLE", "")
+os.environ.setdefault("CURL_CA_BUNDLE", "")
+os.environ.setdefault("REQUESTS_CA_BUNDLE", "")
 
 # Service port assignments
 NLP_PORT = 8001
 ORCHESTRATOR_PORT = 8002
 GUARDRAIL_PORT = 8003
 VIZ_PORT = 8004
+SCHEDULING_PORT = 8005
 AGENT_A_PORT = 8010
 REDSHIFT_AGENT_PORT = 8011
 

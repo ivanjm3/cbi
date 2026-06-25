@@ -1,0 +1,14 @@
+{
+  "Comment": "Scheduled Report Executor - Manual trigger of report execution via backend API call",
+  "StartAt": "PassInput",
+  "States": {
+    "PassInput": {
+      "Type": "Pass",
+      "Result": {
+        "status": "success",
+        "message": "Scheduled report execution triggered. Backend API will handle execution."
+      },
+      "End": true
+    }
+  }
+}

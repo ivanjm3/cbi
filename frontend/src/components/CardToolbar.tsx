@@ -7,14 +7,16 @@
  * - Pin/Unpin: toggles card persistence across new queries
  * - Expand fullscreen: opens the card in a fullscreen modal overlay
  * - Save Prompt: saves the current session as a saved prompt
+ * - Three-dot menu: provides additional actions (Schedule, Rename, Delete)
  * - Drag handle: visual handle for drag-to-reorder
  *
  * Displays inline error toast on export failure (auto-dismisses after 3s).
  *
- * Requirements: 5.1, 5.2, 5.3, 5.5, 5.6, 5.7
+ * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 5.1, 5.2, 5.3, 5.5, 5.6, 5.7
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { CardState, ChartType } from '../types';
 import { useSessionStore } from '../store/sessionStore';
 import { exportCSV } from '../utils/csvExport';
@@ -37,6 +39,7 @@ export function CardToolbar({
   onExpandFullscreen,
   dragHandleRef,
 }: CardToolbarProps) {
+  const navigate = useNavigate();
   const pinCard = useSessionStore((s) => s.pinCard);
   const unpinCard = useSessionStore((s) => s.unpinCard);
   const saveSavedPrompt = useSessionStore((s) => s.saveSavedPrompt);
@@ -44,8 +47,25 @@ export function CardToolbar({
 
   const [exportError, setExportError] = useState<string | null>(null);
   const [vizTypeMenuOpen, setVizTypeMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const vizMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (vizMenuRef.current && !vizMenuRef.current.contains(event.target as Node)) {
+        setVizTypeMenuOpen(false);
+      }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Clear export error after a delay
   const showExportError = useCallback((message: string) => {
@@ -232,6 +252,53 @@ export function CardToolbar({
     [card.query, saveSavedPrompt],
   );
 
+  // ----- Schedule Report (whole chat session - all pinned cards) -----
+  const handleScheduleReport = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setMoreMenuOpen(false);
+      // Get all pinned cards from the session store
+      const allCards = useSessionStore.getState().cards;
+      const pinnedCardIds = Object.values(allCards)
+        .filter(c => c.pinned)
+        .map(c => c.id);
+      
+      if (pinnedCardIds.length === 0) {
+        console.warn('No pinned cards to schedule');
+        return;
+      }
+      
+      // Navigate to scheduled reports creation page with all pinned card IDs
+      // Note: The chat_id will be the current session ID (if available from context)
+      // For now, use a placeholder - this will be passed from the session context
+      const vizIds = pinnedCardIds.join(',');
+      navigate(`/scheduled-reports/new?chat_id=current-session&viz_ids=${vizIds}`);
+    },
+    [navigate],
+  );
+
+  // ----- Rename Card (placeholder) -----
+  const handleRenameCard = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setMoreMenuOpen(false);
+      // TODO: Implement rename dialog/modal
+      console.log('Rename card:', card.id);
+    },
+    [card.id],
+  );
+
+  // ----- Delete Card -----
+  const handleDeleteCard = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setMoreMenuOpen(false);
+      // TODO: Implement delete with confirmation dialog
+      console.log('Delete card:', card.id);
+    },
+    [card.id],
+  );
+
   // ----- Change Visualization Type -----
   const handleChangeVisualizationType = useCallback(
     (e: React.MouseEvent, newType: ChartType | 'text') => {
@@ -307,7 +374,7 @@ export function CardToolbar({
             </svg>
           </button>
 
-          {/* Dropdown Menu */}
+          {/* Visualization Type Dropdown Menu */}
           {vizTypeMenuOpen && (
             <div
               className="absolute right-0 mt-1 w-32 bg-bg-secondary border border-border-default rounded-lg shadow-card z-20 py-1"
@@ -456,18 +523,128 @@ export function CardToolbar({
             />
           </svg>
         </button>
-      </div>
 
-      {/* Export error toast - inline on the card */}
-      {exportError && (
-        <div
-          className="absolute top-full left-0 right-0 mt-2 px-3 py-2 text-xs text-status-error bg-red-50 border border-red-200 rounded-lg shadow-card"
-          role="alert"
-          aria-live="polite"
-        >
-          {exportError}
+        {/* Three-dot menu (More actions) */}
+        <div className="relative" ref={moreMenuRef}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMoreMenuOpen(!moreMenuOpen);
+            }}
+            className="p-1.5 rounded-lg text-text-muted hover:text-accent-primary hover:bg-accent-subtle transition-colors duration-200"
+            title="More actions"
+            aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={moreMenuOpen}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path d="M12 8a2 2 0 110-4 2 2 0 010 4zM12 14a2 2 0 110-4 2 2 0 010 4zM12 20a2 2 0 110-4 2 2 0 010 4z" />
+            </svg>
+          </button>
+
+          {/* Three-dot Menu Dropdown */}
+          {moreMenuOpen && (
+            <div
+              className="absolute right-0 mt-1 w-40 bg-bg-secondary border border-border-default rounded-lg shadow-card z-20 py-1"
+              role="menu"
+            >
+              {/* Schedule option - only for pinned cards */}
+              {card.pinned && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleScheduleReport}
+                    className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-input transition-colors duration-200 flex items-center gap-2"
+                    role="menuitem"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    Schedule
+                  </button>
+                  <div className="border-t border-border-default" />
+                </>
+              )}
+
+              {/* Rename option */}
+              <button
+                type="button"
+                onClick={handleRenameCard}
+                className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-bg-input transition-colors duration-200 flex items-center gap-2"
+                role="menuitem"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
+                </svg>
+                Rename
+              </button>
+
+              {/* Delete option */}
+              <button
+                type="button"
+                onClick={handleDeleteCard}
+                className="w-full text-left px-3 py-2 text-sm text-status-error hover:bg-red-50 transition-colors duration-200 flex items-center gap-2"
+                role="menuitem"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                Delete
+              </button>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Export error toast - inline on the card */}
+        {exportError && (
+          <div
+            className="absolute top-full left-0 right-0 mt-2 px-3 py-2 text-xs text-status-error bg-red-50 border border-red-200 rounded-lg shadow-card"
+            role="alert"
+            aria-live="polite"
+          >
+            {exportError}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -10,7 +10,7 @@
  * Requirement #2: Collapsible chat history in card
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { CardState } from '../types';
 
 export interface CardHistoryDropdownProps {

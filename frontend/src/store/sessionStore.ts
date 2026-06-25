@@ -216,7 +216,7 @@ export const useSessionStore = create<SessionState>()(
         const state = get();
 
         // Create abort controller and correlation ID for this query
-        const { generateCorrelationId, cancelQuery } = await import('../api/queryApi');
+        const { generateCorrelationId } = await import('../api/queryApi');
         const abortController = new AbortController();
         const correlationId = generateCorrelationId();
 

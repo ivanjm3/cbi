@@ -155,6 +155,14 @@ async def process_intent_endpoint(request: Request, body: ProcessRequest) -> JSO
             },
         )
 
+    # If X-Skip-Cache header present (scheduled executions), clear cached result
+    # so fresh data is fetched from agents.
+    skip_cache = request.headers.get("x-skip-cache") == "true"
+    if skip_cache:
+        from src.services.result_cache import ResultCache
+        cache_key = ResultCache.generate_key(intent)
+        hub.result_cache._store.pop(cache_key, None)
+
     # Process through the hub
     result = await hub.process_intent(intent, correlation_id=correlation_id)
 

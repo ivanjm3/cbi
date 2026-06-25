@@ -35,12 +35,12 @@ os.environ.setdefault("USE_MCP_REDSHIFT", "true")
 os.environ.setdefault("USE_MCP_S3", "true")
 
 # MCP servers run locally in the same container
-os.environ.setdefault("MCP_ADAPTER_REDSHIFT_TRANSPORT", "streamable-http")
-os.environ.setdefault("MCP_ADAPTER_REDSHIFT_HOST", "localhost")
-os.environ.setdefault("MCP_ADAPTER_REDSHIFT_PORT", "7010")
-os.environ.setdefault("MCP_ADAPTER_S3_TRANSPORT", "streamable-http")
-os.environ.setdefault("MCP_ADAPTER_S3_HOST", "localhost")
-os.environ.setdefault("MCP_ADAPTER_S3_PORT", "7020")
+os.environ["MCP_ADAPTER_REDSHIFT_TRANSPORT"] = "streamable-http"
+os.environ["MCP_ADAPTER_REDSHIFT_HOST"] = "localhost"
+os.environ["MCP_ADAPTER_REDSHIFT_PORT"] = "7010"
+os.environ["MCP_ADAPTER_S3_TRANSPORT"] = "streamable-http"
+os.environ["MCP_ADAPTER_S3_HOST"] = "localhost"
+os.environ["MCP_ADAPTER_S3_PORT"] = "7020"
 
 # MCP server env vars
 os.environ.setdefault("MCP_REDSHIFT_TRANSPORT", "streamable-http")

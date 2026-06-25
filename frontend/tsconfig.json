@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true
+  },
+  "files": [],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "node_modules"]
+}

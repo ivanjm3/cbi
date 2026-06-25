@@ -23,7 +23,7 @@ export function extractRenderableData(output: RenderedOutput): RenderableData | 
 
   return {
     rawData: output.raw_data,
-    metadata: output.metadata || {},
+    metadata: { ...output.metadata } as Record<string, unknown>,
     originalChartType: output.chart_type as ChartType | null,
   };
 }
@@ -85,7 +85,7 @@ export const AVAILABLE_VIZ_TYPES: (ChartType | 'text')[] = [
  * Returns a filtered list based on data characteristics.
  */
 export function getAvailableVisualizationTypes(
-  output: RenderedOutput,
+  _output: RenderedOutput,
 ): (ChartType | 'text')[] {
   // For now, return all types as available
   // In future, could inspect data to determine suitable types

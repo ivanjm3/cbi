@@ -60,6 +60,8 @@ export interface MetaPayload {
   data_sources?: string[];
   entity_refs?: string[];
   routing_metadata?: Record<string, unknown>;
+  /** Backend hint suggesting the user might prefer a visualization for a text-only response */
+  ask_for_visualization?: boolean;
 }
 
 /** Per-column statistics provided in MetaPayload */
@@ -245,3 +247,22 @@ export interface ThreadSummary {
   /** Cards associated with this thread */
   cards: CardState[];
 }
+
+// ---------------------------------------------------------------------------
+// Re-export Scheduled Reports types
+// ---------------------------------------------------------------------------
+
+export type {
+  RecurrencePattern,
+  ScheduledReportStatus,
+  ExecutionStatus,
+  ScheduledReportDetail,
+  ScheduledReportListItem,
+  ExecutionHistoryItem,
+  ExecutionHistoryResponse,
+  CreateReportRequest,
+  UpdateReportRequest,
+  CreateReportResponse,
+  ListReportsResponse,
+  ScheduledReportsState,
+} from './scheduledReports';
