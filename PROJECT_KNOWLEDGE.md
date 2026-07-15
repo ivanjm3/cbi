@@ -286,7 +286,7 @@ Full CRUD REST API for scheduled reports.
 
 ## Frontend (`frontend/src/`)
 
-React 18 SPA, TypeScript, Tailwind CSS, Vite. Served at `http://localhost:8001/` by the NLP API (FastAPI `FileResponse` from `frontend/dist/`).
+React 19 SPA, TypeScript, Tailwind CSS, Vite. Served at `http://localhost:8001/` by the NLP API (FastAPI `FileResponse` from `frontend/dist/`).
 
 **State management**: Zustand store (`sessionStore.ts`) with `immer` middleware + localStorage persistence. Holds chat thread, cards (visualization state), strands (multi-turn conversations), sidebar history, saved prompts.
 

@@ -29,7 +29,7 @@ The architecture follows a **hub-and-spoke microservices pattern** — five inde
                                 ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                       AWS SERVICES                                     │
-│   Amazon Bedrock (Claude 3.5 Haiku) │ S3 (Data Lake) │ Guardrails    │
+│   Amazon Bedrock (Claude Haiku 4.5) │ S3 (Data Lake) │ Guardrails    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,7 +41,7 @@ The architecture follows a **hub-and-spoke microservices pattern** — five inde
 |-------|-----------|
 | Frontend | React 18, TypeScript, Vite, zustand, Chart.js v4, react-dnd, Tailwind CSS |
 | Backend | Python 3.11+, FastAPI, Pydantic, httpx (async HTTP), Strands SDK |
-| LLM | Amazon Bedrock — Claude 3.5 Haiku (`us.anthropic.claude-3-5-haiku-20241022-v1:0`) |
+| LLM | Amazon Bedrock — Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`) |
 | Agent Framework | Strands SDK (tool-calling agents on Bedrock) |
 | Content Safety | Amazon Bedrock Guardrails (ML-based content classifier) |
 | Storage | Amazon S3 (`visualization-poc-bucket`) |
@@ -551,7 +551,7 @@ Every Bedrock invocation is logged to S3:
 s3://visualization-poc-bucket/costs/{YYYY-MM-DD}/{uuid}.json
 {
   "timestamp": "...",
-  "model_id": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+  "model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   "component": "nlp_translator",
   "input_tokens": 450,
   "output_tokens": 5,

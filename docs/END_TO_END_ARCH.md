@@ -6,7 +6,7 @@
 
 ## 1. Executive Summary
 
-The Conversational BI System is an ontology-based, NLP-driven query platform that transforms natural language business questions into interactive Chart.js visualizations. It uses a **hub-and-spoke microservices architecture** with 7 backend services communicating over HTTP, an AI inference layer powered by Amazon Bedrock (Claude 3.5 Haiku), and a React/TypeScript frontend delivering a multi-panel conversational canvas.
+The Conversational BI System is an ontology-based, NLP-driven query platform that transforms natural language business questions into interactive Chart.js visualizations. It uses a **hub-and-spoke microservices architecture** with 7 backend services communicating over HTTP, an AI inference layer powered by Amazon Bedrock (Claude Haiku 4.5), and a React/TypeScript frontend delivering a multi-panel conversational canvas.
 
 The system features a **Model Context Protocol (MCP) integration layer** that provides standardized, tool-calling access to data sources (Amazon Redshift and S3), with automatic fallback to legacy deterministic agents when MCP servers are unavailable.
 
@@ -18,7 +18,7 @@ The system features a **Model Context Protocol (MCP) integration layer** that pr
 |-------|-------------|
 | **Frontend** | React 19, TypeScript 6, Vite 8, Zustand (state), Chart.js 4 / Recharts, react-dnd, Tailwind CSS 4 |
 | **Backend** | Python 3.11+, FastAPI 0.115+, Pydantic v2, uvicorn, httpx (async HTTP) |
-| **AI / LLM** | Amazon Bedrock — Claude 3.5 Haiku (NLP classification + chart generation), Amazon Titan Embeddings V2 |
+| **AI / LLM** | Amazon Bedrock — Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`) for NLP classification + chart generation, Amazon Titan Embeddings V2 |
 | **Agent Framework** | Strands SDK (tool-calling AI agents for visualization + orchestration) |
 | **MCP Layer** | MCP SDK 1.0+, custom MCP servers (mcp-redshift, mcp-s3), MCP Adapter bridge service |
 | **Content Safety** | Amazon Bedrock Guardrails (input + output content filtering) |
@@ -137,8 +137,8 @@ The system features a **Model Context Protocol (MCP) integration layer** that pr
 │  ┌──────────────────┐  ┌──────────────┐  ┌──────────────────┐  ┌─────────────┐  │
 │  │ Amazon Bedrock   │  │ Amazon S3    │  │ Bedrock          │  │ Amazon      │  │
 │  │                  │  │              │  │ Guardrails       │  │ Redshift    │  │
-│  │ • Claude 3.5     │  │ • Ontology   │  │                  │  │             │  │
-│  │   Haiku (NLP +   │  │ • Data files │  │ • Input filter   │  │ • Data API  │  │
+│  │ • Claude Haiku   │  │ • Ontology   │  │                  │  │             │  │
+│  │   4.5 (NLP +     │  │ • Data files │  │ • Input filter   │  │ • Data API  │  │
 │  │   visualization) │  │ • Cost logs  │  │ • Output filter  │  │ • SQL exec  │  │
 │  │ • Titan Embed V2 │  │ • History    │  │ • PII detection  │  │ • No VPC    │  │
 │  │   (embeddings)   │  │ • Sessions   │  │                  │  │   required  │  │
@@ -810,8 +810,8 @@ conversational-bi/
 │   │   ├── visualization_renderer.py  # Chart generation logic
 │   │   ├── ontology_store.py     # S3-backed ontology access
 │   │   ├── result_cache.py       # Orchestrator result cache
-│   │   ├── cost_tracker.py       # LLM cost tracking
-│   │   ├── query_history_store.py # S3-backed query history
+│   │   ├── cache_layer.py        # Exact-match result caching
+│   │   ├── query_history_store.py # S3-backed query history + embedding similarity lookup
 │   │   ├── schema_registry.py    # Redshift schema metadata
 │   │   ├── sql_generator.py      # SQL generation for Redshift
 │   │   ├── meta_query_detector.py # Detects meta-queries about the system
